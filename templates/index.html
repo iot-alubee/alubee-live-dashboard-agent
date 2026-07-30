@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Machine Live Monitor · Cloud</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+  <div class="page">
+    <nav class="tabs" aria-label="Unit">
+      <button type="button" class="tab-btn active" data-unit="unit_i">Unit I</button>
+      <button type="button" class="tab-btn" data-unit="unit_ii">Unit II</button>
+      <span class="cloud-note">Cloud view · Reset / OTA on plant LAN only</span>
+    </nav>
+
+    <section id="tab-live" class="tab-panel active">
+      <div class="header-row">
+        <div class="header-card header-left">
+          <div>
+            <div class="hdr-title">Machine Live Monitor</div>
+            <div class="hdr-mono" id="clock">--</div>
+            <div class="hdr-line" id="shift-line">—</div>
+          </div>
+          <div class="live-wrap"><div class="live-dot"></div><div class="live-label">LIVE</div></div>
+        </div>
+        <div class="header-card header-right">
+          <div class="stat-pair">
+            <div class="stat-box stat-total">
+              <div class="stat-label">Total Machines</div>
+              <div class="stat-value" id="cnt-total">0</div>
+            </div>
+            <div class="stat-box stat-run">
+              <div class="stat-label">Running</div>
+              <div class="stat-value" id="cnt-run">0</div>
+            </div>
+            <div class="stat-box stat-idle">
+              <div class="stat-label">Idle</div>
+              <div class="stat-value" id="cnt-idle">0</div>
+            </div>
+            <div class="stat-box stat-disc">
+              <div class="stat-label">Disconnected</div>
+              <div class="stat-value" id="cnt-disc">0</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-title">Machines</div>
+      <div class="filter-bar" id="filter-bar">
+        <label class="filter-item">
+          <span>Department</span>
+          <select id="filter-department"></select>
+        </label>
+        <label class="filter-item">
+          <span>Supervisor</span>
+          <select id="filter-supervisor"></select>
+        </label>
+        <label class="filter-item">
+          <span>Status</span>
+          <select id="filter-status"></select>
+        </label>
+        <div class="filter-hint" id="filter-hint">Remote snapshot · updates ~10s from plant PC</div>
+      </div>
+      <div class="table-wrap machines">
+        <table class="data-table" id="machines-table">
+          <thead>
+            <tr>
+              <th>Machine No</th>
+              <th>Status</th>
+              <th>Shots</th>
+              <th>Idle</th>
+              <th>From</th>
+              <th>Elapsed</th>
+              <th>Avg Cycle</th>
+              <th>Exp Qty/Hr</th>
+              <th>Act Qty/Hr</th>
+              <th>Efficiency</th>
+              <th>Updated</th>
+              <th>Ping</th>
+              <th>Reset Status</th>
+              <th>Reconn</th>
+            </tr>
+          </thead>
+          <tbody id="machines-body">
+            <tr><td colspan="14" class="empty">Waiting for cloud snapshot...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="section-title">Idle History</div>
+      <div class="table-wrap idle">
+        <table class="data-table idle-table" id="idle-table">
+          <thead>
+            <tr id="idle-head"><th>Machine No</th></tr>
+          </thead>
+          <tbody id="idle-body">
+            <tr><td class="empty">No idle history in snapshot yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+  <script src="/static/js/cloud_dashboard.js"></script>
+</body>
+</html>

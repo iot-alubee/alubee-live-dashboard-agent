@@ -14,23 +14,28 @@ from __future__ import annotations
 import os
 from datetime import datetime, timezone
 
-from flask import Flask, jsonify, request, Response
+from flask import Flask, jsonify, request, render_template
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder="static", template_folder="templates")
 
 INGEST_API_KEY = os.environ.get("INGEST_API_KEY", "").strip()
 USE_FIRESTORE = os.environ.get("USE_FIRESTORE", "1").strip() not in ("0", "false", "no")
+# "(default)" or a named DB id — must match Firestore console
+FIRESTORE_DATABASE = os.environ.get("FIRESTORE_DATABASE", "(default)").strip() or "(default)"
 
 # In-memory fallback: { unit_id: payload }
 _MEMORY: dict = {}
+_db_error = None
 
 _db = None
 if USE_FIRESTORE:
     try:
         from google.cloud import firestore
 
-        _db = firestore.Client()
+        _db = firestore.Client(database=FIRESTORE_DATABASE)
+        print(f"Firestore client OK database={FIRESTORE_DATABASE}")
     except Exception as e:
+        _db_error = str(e)
         print(f"Firestore unavailable ({e}) — using memory store")
         _db = None
 
@@ -56,7 +61,7 @@ def _save_unit(unit_id: str, payload: dict) -> None:
         _MEMORY[unit_id] = payload
 
 
-def _load_unit(unit_id: str) -> dict | None:
+def _load_unit(unit_id: str):
     if _db is not None:
         snap = _db.collection("units").document(unit_id).get()
         if snap.exists:
@@ -71,6 +76,8 @@ def health():
         {
             "ok": True,
             "firestore": _db is not None,
+            "firestore_database": FIRESTORE_DATABASE,
+            "firestore_error": _db_error,
             "time": _now_iso(),
         }
     )
@@ -100,10 +107,23 @@ def ingest():
         "shift_range": data.get("shift_range") or "",
         "counts": data.get("counts") or {},
         "machines": machines,
+        "idle_history": data.get("idle_history") or [],
+        "idle_columns": data.get("idle_columns") or [],
         "pc_name": data.get("pc_name") or "",
         "agent_version": data.get("agent_version") or "1.0.0",
     }
-    _save_unit(unit_id, payload)
+    try:
+        _save_unit(unit_id, payload)
+    except Exception as e:
+        print(f"INGEST Firestore error: {e}")
+        return jsonify(
+            {
+                "ok": False,
+                "error": "firestore_write_failed",
+                "detail": str(e),
+                "firestore_database": FIRESTORE_DATABASE,
+            }
+        ), 500
     return jsonify({"ok": True, "unit_id": unit_id, "machines": len(machines)})
 
 
@@ -113,7 +133,11 @@ def live():
     if unit_id not in ("unit_i", "unit_ii"):
         return jsonify({"ok": False, "error": "unit must be unit_i or unit_ii"}), 400
 
-    data = _load_unit(unit_id)
+    try:
+        data = _load_unit(unit_id)
+    except Exception as e:
+        return jsonify({"ok": False, "error": "firestore_read_failed", "detail": str(e)}), 500
+
     if not data:
         return jsonify(
             {
@@ -125,108 +149,17 @@ def live():
             }
         )
 
-    # Age hint for UI
-    stale = False
-    try:
-        # Prefer agent updated_at
-        pass
-    except Exception:
-        stale = False
-
     out = dict(data)
     out["ok"] = True
-    out["stale"] = stale
+    out["stale"] = False
     out["polled_at"] = _now_iso()
     return jsonify(out)
 
 
 @app.get("/")
 def index():
-    """Minimal remote viewer — polls /live every 2s."""
-    html = """<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Cloud Live Monitor</title>
-  <style>
-    body { font-family: system-ui, sans-serif; margin: 1rem; background: #0f172a; color: #e2e8f0; }
-    select, button { padding: 0.4rem 0.6rem; margin-right: 0.5rem; }
-    table { border-collapse: collapse; width: 100%; margin-top: 1rem; font-size: 0.9rem; }
-    th, td { border-bottom: 1px solid #334155; padding: 0.4rem 0.5rem; text-align: left; }
-    th { color: #94a3b8; }
-    .meta { color: #94a3b8; font-size: 0.85rem; margin-top: 0.5rem; }
-    .run { color: #4ade80; } .idle { color: #fbbf24; } .disc { color: #f87171; }
-  </style>
-</head>
-<body>
-  <h1>Cloud Live Monitor</h1>
-  <div>
-    <label>Unit
-      <select id="unit">
-        <option value="unit_i">Unit I</option>
-        <option value="unit_ii">Unit II</option>
-      </select>
-    </label>
-    <span class="meta" id="meta">Starting…</span>
-  </div>
-  <table>
-    <thead>
-      <tr>
-        <th>Machine</th><th>Status</th><th>Shots</th><th>Idle</th>
-        <th>Act Qty/Hr</th><th>Efficiency</th><th>Updated</th><th>Ping</th>
-      </tr>
-    </thead>
-    <tbody id="body"></tbody>
-  </table>
-  <script>
-    const body = document.getElementById("body");
-    const meta = document.getElementById("meta");
-    const unitSel = document.getElementById("unit");
-    let busy = false;
-    function esc(v) {
-      return String(v ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-    }
-    function statusClass(s) {
-      const k = String(s||"").toLowerCase();
-      if (k === "running") return "run";
-      if (k === "idle") return "idle";
-      if (k === "disconnected") return "disc";
-      return "";
-    }
-    async function tick() {
-      if (busy) return;
-      busy = true;
-      try {
-        const u = unitSel.value;
-        const res = await fetch("/live?unit=" + encodeURIComponent(u), { cache: "no-store" });
-        const data = await res.json();
-        const rows = data.machines || [];
-        meta.textContent = (data.shift_name || "") + " · " + (data.updated_at || "no data") +
-          " · " + rows.length + " machines · poll 2s";
-        body.innerHTML = rows.map(r => `<tr>
-          <td>${esc(r["Machine No"] || r.machine_no)}</td>
-          <td class="${statusClass(r.Status || r.status)}">${esc(r.Status || r.status)}</td>
-          <td>${esc(r.Shots ?? r.shots ?? "—")}</td>
-          <td>${esc(r.Idle || r.idle || "—")}</td>
-          <td>${esc(r["Actual Qty/Hour"] || "—")}</td>
-          <td>${esc(r.Efficiency || "—")}</td>
-          <td>${esc(r["Last Updated"] || "—")}</td>
-          <td>${esc(r["Latest Ping"] || "—")}</td>
-        </tr>`).join("") || `<tr><td colspan="8">No snapshot yet</td></tr>`;
-      } catch (e) {
-        meta.textContent = "Error: " + e.message;
-      } finally {
-        busy = false;
-      }
-    }
-    unitSel.addEventListener("change", tick);
-    tick();
-    setInterval(tick, 2000);
-  </script>
-</body>
-</html>"""
-    return Response(html, mimetype="text/html")
+    """Same Live Monitor look as plant Flask — data from /live snapshot."""
+    return render_template("index.html")
 
 
 if __name__ == "__main__":

@@ -22,7 +22,7 @@ gcloud services enable run.googleapis.com firestore.googleapis.com cloudbuild.go
 
 cd "Production-Upgraded/Cloud Setup/cloud_api"
 
-gcloud run deploy iot-live \
+gcloud run deploy alubee-live-dashboard-agent \
   --source . \
   --region asia-south1 \
   --allow-unauthenticated \
@@ -30,11 +30,16 @@ gcloud run deploy iot-live \
   --max-instances 3 \
   --memory 256Mi \
   --cpu 1 \
-  --set-env-vars "INGEST_API_KEY=iot_Gm4rZk9zkoaseaxB2W4s9G7rfvRidGQv0llM8R0W0Gg,USE_FIRESTORE=1"
+  --set-env-vars "INGEST_API_KEY=iot_Gm4rZk9zkoaseaxB2W4s9G7rfvRidGQv0llM8R0W0Gg,USE_FIRESTORE=1,FIRESTORE_DATABASE=(default)"
 ```
 
 **API key (same on Cloud Run + both agents):**  
 `iot_Gm4rZk9zkoaseaxB2W4s9G7rfvRidGQv0llM8R0W0Gg`
+
+After deploy, open `/health` — should show `"firestore": true`.
+
+If ingest still fails with permission errors, grant the Cloud Run runtime SA role **Cloud Datastore User**:
+IAM → find `...-compute@developer.gserviceaccount.com` → add role.
 
 Copy the service URL into each unit `agent/config.json` as `cloud_url`.
 
