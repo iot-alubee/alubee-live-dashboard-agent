@@ -1,8 +1,8 @@
 /** Cloud Live Monitor — same layout as local; clock live, data every 10s. */
 const SNAPSHOT_MS = 10000;
 const CLOCK_MS = 1000;
-/** Agent interval is 10s — allow small network slack before Offline */
-const SERVER_STALE_MS = 15000;
+/** Agent interval is 10s — Offline if no snapshot for 20s */
+const SERVER_STALE_MS = 20000;
 
 const clockEl = document.getElementById("clock");
 const shiftEl = document.getElementById("shift-line");
