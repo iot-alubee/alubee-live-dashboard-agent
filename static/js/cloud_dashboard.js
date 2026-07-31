@@ -20,8 +20,8 @@ let idleColsKey = "";
 let shotChart = null;
 
 const filterState = {
-  department: "All",
-  supervisor: "All",
+  department: "",
+  supervisor: "",
   status: "All",
 };
 
@@ -48,8 +48,54 @@ function formatNow() {
   return `${dd} ${mon} ${yyyy} · ${hh}:${mm}:${ss}`;
 }
 
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+
+/** Same format as local monitor.format_elapsed */
+function formatElapsed(seconds) {
+  if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return "—";
+  seconds = Math.floor(seconds);
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  if (h > 0) return `${pad2(h)}:${pad2(m)}:${pad2(s)}`;
+  return `${pad2(m)}:${pad2(s)}`;
+}
+
+/**
+ * Live elapsed from From=HH:MM:SS (plant local time).
+ * Browser-only — no API call. Handles overnight (From later than now → yesterday).
+ */
+function elapsedFrom(fromStr) {
+  if (!fromStr || fromStr === "—" || fromStr === "-") return "—";
+  const parts = String(fromStr).trim().split(":").map((x) => parseInt(x, 10));
+  if (parts.length < 3 || parts.some((n) => Number.isNaN(n))) return "—";
+  const now = new Date();
+  const start = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+    parts[0],
+    parts[1],
+    parts[2] || 0
+  );
+  // Overnight shift: From is yesterday if it looks "in the future"
+  if (start.getTime() > now.getTime() + 2000) {
+    start.setDate(start.getDate() - 1);
+  }
+  return formatElapsed((now.getTime() - start.getTime()) / 1000);
+}
+
+function tickElapsed() {
+  document.querySelectorAll("[data-idle-from]").forEach((el) => {
+    el.textContent = elapsedFrom(el.getAttribute("data-idle-from"));
+  });
+}
+
 function tickClock() {
   if (clockEl) clockEl.textContent = formatNow();
+  tickElapsed();
 }
 
 function statusClass(status) {
@@ -78,7 +124,7 @@ function uniqueSorted(vals) {
 function fillSelect(sel, options, selected, includeAll) {
   const vals = includeAll ? ["All", ...options.filter((o) => o !== "All")] : options.slice();
   let prev = selected;
-  if (!vals.includes(prev)) prev = includeAll ? "All" : vals[0] || "All";
+  if (!vals.includes(prev)) prev = vals[0] || (includeAll ? "All" : "");
   sel.innerHTML = vals
     .map((v) => `<option value="${esc(v)}"${v === prev ? " selected" : ""}>${esc(v)}</option>`)
     .join("");
@@ -88,17 +134,24 @@ function fillSelect(sel, options, selected, includeAll) {
 
 function setupFilters(machines) {
   const depts = uniqueSorted(machines.map((m) => m.Department));
-  const sups = uniqueSorted(machines.map((m) => m.Supervisor));
-  const statuses = ["Running", "Idle", "Disconnected", "Reset"];
-  filterState.department = fillSelect(filterDepartment, depts, filterState.department, true);
-  filterState.supervisor = fillSelect(filterSupervisor, sups, filterState.supervisor, true);
+  filterState.department = fillSelect(filterDepartment, depts, filterState.department, false);
+
+  const sups = uniqueSorted(
+    machines
+      .filter((m) => !filterState.department || m.Department === filterState.department)
+      .map((m) => m.Supervisor)
+  );
+  filterState.supervisor = fillSelect(filterSupervisor, sups, filterState.supervisor, false);
+
+  const statuses = ["All", "Running", "Idle", "Disconnected", "Reset"];
   filterState.status = fillSelect(filterStatus, statuses, filterState.status, true);
 }
 
 function rowMatches(r) {
-  if (filterState.department !== "All" && r.Department !== filterState.department) return false;
-  if (filterState.supervisor !== "All" && r.Supervisor !== filterState.supervisor) return false;
-  if (filterState.status !== "All" && r.Status !== filterState.status) return false;
+  if (filterState.department && r.Department !== filterState.department) return false;
+  if (filterState.supervisor && r.Supervisor !== filterState.supervisor) return false;
+  if (filterState.status && filterState.status !== "All" && r.Status !== filterState.status)
+    return false;
   return true;
 }
 
@@ -117,7 +170,9 @@ function renderMachines(rows) {
         <td>${esc(r.Shots)}</td>
         <td>${esc(r.Idle)}</td>
         <td>${esc(r.From)}</td>
-        <td>${esc(r.Elapsed)}</td>
+        <td class="elapsed-cell" data-idle-from="${esc(r.From)}">${esc(
+          elapsedFrom(r.From)
+        )}</td>
         <td>${esc(r["Avg Cycle Time"])}</td>
         <td>${esc(r["Expected Qty/Hour"])}</td>
         <td>${esc(r["Actual Qty/Hour"])}</td>
@@ -252,10 +307,8 @@ function applyAndRender() {
 
   const idleRows = (latestData.idle_history || [])
     .filter((r) => {
-      if (filterState.department !== "All" && r.Department !== filterState.department)
-        return false;
-      if (filterState.supervisor !== "All" && r.Supervisor !== filterState.supervisor)
-        return false;
+      if (filterState.department && r.Department !== filterState.department) return false;
+      if (filterState.supervisor && r.Supervisor !== filterState.supervisor) return false;
       return set.size ? set.has(r["Machine No"]) : true;
     })
     .sort((a, b) =>
@@ -285,7 +338,7 @@ async function refreshSnapshot() {
     if (filterHint) {
       filterHint.textContent = data.message
         ? data.message
-        : `Near real-time · data every 10s · ${data.pc_name || ""}`.trim();
+        : "Clock + Elapsed live · data every 10s";
     }
     applyAndRender();
   } catch (err) {
@@ -301,8 +354,8 @@ document.querySelectorAll(".tab-btn[data-unit]").forEach((btn) => {
     document.querySelectorAll(".tab-btn[data-unit]").forEach((b) => b.classList.remove("active"));
     btn.classList.add("active");
     currentUnit = btn.dataset.unit;
-    filterState.department = "All";
-    filterState.supervisor = "All";
+    filterState.department = "";
+    filterState.supervisor = "";
     filterState.status = "All";
     refreshSnapshot();
   });
@@ -314,6 +367,12 @@ document.querySelectorAll(".tab-btn[data-unit]").forEach((btn) => {
       filterState.department = filterDepartment.value;
       filterState.supervisor = filterSupervisor.value;
       filterState.status = filterStatus.value;
+      // Re-cascade supervisors when department changes
+      if (el === filterDepartment && latestData) {
+        setupFilters(latestData.machines || []);
+        filterState.department = filterDepartment.value;
+        filterState.supervisor = filterSupervisor.value;
+      }
       applyAndRender();
     });
 });
