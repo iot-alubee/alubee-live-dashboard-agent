@@ -211,14 +211,10 @@ function renderIdle(rows, cols) {
       const cells = (cols || [])
         .map((c) => {
           const lvl = levels[c] || "empty";
-          const cls =
-            lvl === "crit"
-              ? "idle-crit"
-              : lvl === "warn"
-              ? "idle-warn"
-              : lvl === "ok"
-              ? "idle-ok"
-              : "idle-empty";
+          let cls = "idle-ok";
+          if (lvl === "empty") cls = "idle-empty";
+          else if (lvl === "loss-bad") cls = "idle-loss-bad";
+          else if (lvl === "loss-ok") cls = "idle-loss-ok";
           return `<td><span class="${cls}">${esc(r[c])}</span></td>`;
         })
         .join("");

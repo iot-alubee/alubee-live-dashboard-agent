@@ -256,20 +256,13 @@ td.machine-no { font-weight: 700; color: #1b4965; }
 }
 .idle-empty { color: #94a3b8; font-weight: 600; }
 .idle-ok { color: #1b263b; font-weight: 600; }
-.idle-warn {
-  background: #fff3cd;
-  color: #856404;
+.idle-loss-ok { color: #1b263b; font-weight: 700; }
+.idle-loss-bad {
+  color: #d93025;
   font-weight: 800;
-  border-radius: 8px;
-  padding: 3px 8px;
 }
-.idle-crit {
-  background: #fde2e4;
-  color: #a4133c;
-  font-weight: 800;
-  border-radius: 8px;
-  padding: 3px 8px;
-}
+.idle-warn { color: #1b263b; font-weight: 600; }
+.idle-crit { color: #1b263b; font-weight: 600; }
 .empty {
   text-align: center !important;
   color: #64748b;
