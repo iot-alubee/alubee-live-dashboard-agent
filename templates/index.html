@@ -24,8 +24,13 @@
             <div class="hdr-title">Machine Live Monitor</div>
             <div class="hdr-mono" id="clock">--</div>
             <div class="hdr-line" id="shift-line">—</div>
+            <div class="hdr-line" id="reset-line">Next scheduled Reset: —</div>
           </div>
-          <div class="live-wrap"><div class="live-dot"></div><div class="live-label">LIVE</div></div>
+          <div class="server-status-wrap" id="server-status-wrap" title="Plant PC snapshot every 10s">
+            <span class="server-status-label">Server Status:</span>
+            <span class="status-dot offline" id="server-dot" aria-hidden="true"></span>
+            <span class="server-status-text" id="server-status-text">Offline</span>
+          </div>
         </div>
         <div class="header-card header-right">
           <div class="stat-pair">

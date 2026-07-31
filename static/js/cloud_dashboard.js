@@ -1,9 +1,15 @@
 /** Cloud Live Monitor — same layout as local; clock live, data every 10s. */
 const SNAPSHOT_MS = 10000;
 const CLOCK_MS = 1000;
+/** Agent interval is 10s — allow small network slack before Offline */
+const SERVER_STALE_MS = 15000;
 
 const clockEl = document.getElementById("clock");
 const shiftEl = document.getElementById("shift-line");
+const resetEl = document.getElementById("reset-line");
+const serverWrap = document.getElementById("server-status-wrap");
+const serverDot = document.getElementById("server-dot");
+const serverText = document.getElementById("server-status-text");
 const machinesBody = document.getElementById("machines-body");
 const idleHead = document.getElementById("idle-head");
 const idleBody = document.getElementById("idle-body");
@@ -96,6 +102,63 @@ function tickElapsed() {
 function tickClock() {
   if (clockEl) clockEl.textContent = formatNow();
   tickElapsed();
+  if (resetEl) resetEl.textContent = "Next scheduled Reset: " + nextScheduledReset();
+  updateServerStatus(latestData);
+}
+
+function nextScheduledReset(now) {
+  now = now || new Date();
+  const months = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+  ];
+  const candidates = [];
+  for (let day = 0; day <= 1; day++) {
+    for (const hour of [8, 20]) {
+      const d = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate() + day,
+        hour,
+        0,
+        0,
+        0
+      );
+      if (d.getTime() > now.getTime()) candidates.push(d);
+    }
+  }
+  candidates.sort((a, b) => a - b);
+  const next = candidates[0];
+  if (!next) return "—";
+  const dd = String(next.getDate()).padStart(2, "0");
+  const mon = months[next.getMonth()];
+  const hh = String(next.getHours()).padStart(2, "0");
+  const mm = String(next.getMinutes()).padStart(2, "0");
+  return `${dd} ${mon} ${hh}:${mm}`;
+}
+
+function parseSnapshotTime(data) {
+  if (!data) return null;
+  const raw = data.cloud_received_at || data.updated_at || "";
+  if (!raw) return null;
+  // Agents send UTC like 2026-07-31T10:00:00Z
+  const ms = Date.parse(/Z$|[+-]\d{2}:\d{2}$/.test(raw) ? raw : raw + "Z");
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function updateServerStatus(data) {
+  if (!serverWrap || !serverDot || !serverText) return;
+  const ts = parseSnapshotTime(data);
+  const online =
+    !!data &&
+    !data.stale &&
+    ts != null &&
+    Date.now() - ts <= SERVER_STALE_MS;
+  serverDot.classList.toggle("online", online);
+  serverDot.classList.toggle("offline", !online);
+  serverWrap.classList.toggle("is-online", online);
+  serverWrap.classList.toggle("is-offline", !online);
+  serverText.textContent = online ? "Online" : "Offline";
 }
 
 function statusClass(status) {
@@ -213,8 +276,8 @@ function renderIdle(rows, cols) {
           const lvl = levels[c] || "empty";
           let cls = "idle-ok";
           if (lvl === "empty") cls = "idle-empty";
-          else if (lvl === "loss-bad") cls = "idle-loss-bad";
-          else if (lvl === "loss-ok") cls = "idle-loss-ok";
+          else if (c === "Efficiency Loss" && lvl === "loss-bad") cls = "idle-loss-bad";
+          else if (c === "Efficiency Loss" && lvl === "loss-ok") cls = "idle-loss-ok";
           return `<td><span class="${cls}">${esc(r[c])}</span></td>`;
         })
         .join("");
@@ -384,9 +447,11 @@ async function refreshSnapshot() {
         : "Clock + Elapsed live · data every 10s";
     }
     applyAndRender();
+    updateServerStatus(data);
   } catch (err) {
     console.error(err);
     if (filterHint) filterHint.textContent = "Error: " + err.message;
+    updateServerStatus(null);
   } finally {
     refreshInFlight = false;
   }
