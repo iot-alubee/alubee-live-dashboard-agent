@@ -102,16 +102,12 @@ function tickElapsed() {
 function tickClock() {
   if (clockEl) clockEl.textContent = formatNow();
   tickElapsed();
-  if (resetEl) resetEl.textContent = "Next scheduled Reset: " + nextScheduledReset();
+  if (resetEl) resetEl.textContent = "Next reset in: " + nextResetCountdown();
   updateServerStatus(latestData);
 }
 
-function nextScheduledReset(now) {
+function nextResetAt(now) {
   now = now || new Date();
-  const months = [
-    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-  ];
   const candidates = [];
   for (let day = 0; day <= 1; day++) {
     for (const hour of [8, 20]) {
@@ -128,13 +124,19 @@ function nextScheduledReset(now) {
     }
   }
   candidates.sort((a, b) => a - b);
-  const next = candidates[0];
+  return candidates[0] || null;
+}
+
+function nextResetCountdown(now) {
+  now = now || new Date();
+  const next = nextResetAt(now);
   if (!next) return "—";
-  const dd = String(next.getDate()).padStart(2, "0");
-  const mon = months[next.getMonth()];
-  const hh = String(next.getHours()).padStart(2, "0");
-  const mm = String(next.getMinutes()).padStart(2, "0");
-  return `${dd} ${mon} ${hh}:${mm}`;
+  let sec = Math.max(0, Math.floor((next.getTime() - now.getTime()) / 1000));
+  const h = Math.floor(sec / 3600);
+  sec %= 3600;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
 function parseSnapshotTime(data) {
