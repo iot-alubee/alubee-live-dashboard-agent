@@ -1,10 +1,13 @@
-const REFRESH_MS = 2000;
+/** Cloud Live Monitor — same layout as local; clock live, data every 10s. */
+const SNAPSHOT_MS = 10000;
+const CLOCK_MS = 1000;
 
 const clockEl = document.getElementById("clock");
 const shiftEl = document.getElementById("shift-line");
 const machinesBody = document.getElementById("machines-body");
 const idleHead = document.getElementById("idle-head");
 const idleBody = document.getElementById("idle-body");
+const chartEmpty = document.getElementById("chart-empty");
 const filterDepartment = document.getElementById("filter-department");
 const filterSupervisor = document.getElementById("filter-supervisor");
 const filterStatus = document.getElementById("filter-status");
@@ -14,6 +17,7 @@ let currentUnit = "unit_i";
 let latestData = null;
 let refreshInFlight = false;
 let idleColsKey = "";
+let shotChart = null;
 
 const filterState = {
   department: "All",
@@ -27,6 +31,25 @@ function esc(v) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+function formatNow() {
+  const d = new Date();
+  const months = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+  ];
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mon = months[d.getMonth()];
+  const yyyy = d.getFullYear();
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  const ss = String(d.getSeconds()).padStart(2, "0");
+  return `${dd} ${mon} ${yyyy} · ${hh}:${mm}:${ss}`;
+}
+
+function tickClock() {
+  if (clockEl) clockEl.textContent = formatNow();
 }
 
 function statusClass(status) {
@@ -82,7 +105,7 @@ function rowMatches(r) {
 function renderMachines(rows) {
   if (!rows.length) {
     machinesBody.innerHTML =
-      '<tr><td colspan="14" class="empty">No machines in this snapshot / filter.</td></tr>';
+      '<tr><td colspan="14" class="empty">No machines match the selected filters.</td></tr>';
     return;
   }
   machinesBody.innerHTML = rows
@@ -101,7 +124,9 @@ function renderMachines(rows) {
         <td class="${effClass(r.EfficiencyDir)}">${esc(r.Efficiency)}</td>
         <td>${esc(r["Last Updated"])}</td>
         <td>${esc(r["Latest Ping"])}</td>
-        <td class="${r["Reset Status"] === "Not cleared" ? "reset-bad" : ""}">${esc(r["Reset Status"] || "—")}</td>
+        <td class="${r["Reset Status"] === "Not cleared" ? "reset-bad" : ""}">${esc(
+          r["Reset Status"] || "—"
+        )}</td>
         <td>${esc(r.Reconnections)}</td>
       </tr>`;
     })
@@ -120,7 +145,9 @@ function renderIdle(rows, cols) {
   ensureIdleHeader(cols || []);
   if (!rows || !rows.length) {
     const n = (cols || []).length + 1;
-    idleBody.innerHTML = `<tr><td colspan="${n || 1}" class="empty">No idle history in snapshot yet.</td></tr>`;
+    idleBody.innerHTML = `<tr><td colspan="${
+      n || 1
+    }" class="empty">No idle history for this filter yet.</td></tr>`;
     return;
   }
   idleBody.innerHTML = rows
@@ -129,12 +156,78 @@ function renderIdle(rows, cols) {
       const cells = (cols || [])
         .map((c) => {
           const lvl = levels[c] || "empty";
-          return `<td class="idle-cell idle-${esc(lvl)}">${esc(r[c] || "—")}</td>`;
+          const cls =
+            lvl === "crit"
+              ? "idle-crit"
+              : lvl === "warn"
+              ? "idle-warn"
+              : lvl === "ok"
+              ? "idle-ok"
+              : "idle-empty";
+          return `<td><span class="${cls}">${esc(r[c])}</span></td>`;
         })
         .join("");
       return `<tr><td class="machine-no">${esc(r["Machine No"])}</td>${cells}</tr>`;
     })
     .join("");
+}
+
+function renderChart(chart) {
+  const labels = (chart && chart.labels) || [];
+  const datasets = (chart && chart.datasets) || [];
+  if (!labels.length || !datasets.length) {
+    if (chartEmpty) chartEmpty.classList.remove("hidden");
+    if (shotChart) {
+      shotChart.destroy();
+      shotChart = null;
+    }
+    return;
+  }
+  if (chartEmpty) chartEmpty.classList.add("hidden");
+  const ctx = document.getElementById("shot-chart").getContext("2d");
+  if (shotChart) {
+    shotChart.data.labels = labels;
+    shotChart.data.datasets = datasets;
+    shotChart.update("none");
+    return;
+  }
+  shotChart = new Chart(ctx, {
+    type: "bar",
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      datasets: {
+        bar: {
+          categoryPercentage: 0.65,
+          barPercentage: 0.85,
+          maxBarThickness: 56,
+        },
+      },
+      plugins: {
+        legend: {
+          position: "top",
+          labels: { color: "#edf2f7", font: { family: "Montserrat", size: 11 } },
+        },
+        tooltip: { mode: "index", intersect: false },
+      },
+      scales: {
+        x: {
+          stacked: true,
+          ticks: { color: "#d6e4f0", maxRotation: 25, minRotation: 0, autoSkip: true },
+          grid: { color: "rgba(157,187,212,0.12)" },
+          title: { display: true, text: "Time Bucket", color: "#9dbbd4" },
+        },
+        y: {
+          stacked: true,
+          beginAtZero: true,
+          ticks: { color: "#d6e4f0" },
+          grid: { color: "rgba(157,187,212,0.12)" },
+          title: { display: true, text: "Shots", color: "#9dbbd4" },
+        },
+      },
+    },
+  });
 }
 
 function applyAndRender() {
@@ -145,36 +238,54 @@ function applyAndRender() {
   const set = new Set(machines.map((m) => m["Machine No"]));
 
   document.getElementById("cnt-total").textContent = machines.length;
-  document.getElementById("cnt-run").textContent = machines.filter((r) => r.Status === "Running").length;
-  document.getElementById("cnt-idle").textContent = machines.filter((r) => r.Status === "Idle").length;
+  document.getElementById("cnt-run").textContent = machines.filter(
+    (r) => r.Status === "Running"
+  ).length;
+  document.getElementById("cnt-idle").textContent = machines.filter(
+    (r) => r.Status === "Idle"
+  ).length;
   document.getElementById("cnt-disc").textContent = machines.filter(
     (r) => r.Status === "Disconnected"
   ).length;
 
   renderMachines(machines);
 
-  const idleRows = (latestData.idle_history || []).filter((r) =>
-    set.size ? set.has(r["Machine No"]) : true
-  );
+  const idleRows = (latestData.idle_history || [])
+    .filter((r) => {
+      if (filterState.department !== "All" && r.Department !== filterState.department)
+        return false;
+      if (filterState.supervisor !== "All" && r.Supervisor !== filterState.supervisor)
+        return false;
+      return set.size ? set.has(r["Machine No"]) : true;
+    })
+    .sort((a, b) =>
+      String(a["Machine No"] || "").localeCompare(String(b["Machine No"] || ""), undefined, {
+        numeric: true,
+        sensitivity: "base",
+      })
+    );
   renderIdle(idleRows, latestData.idle_columns || []);
+
+  const chart = latestData.chart || { labels: [], datasets: [] };
+  const filteredDatasets = (chart.datasets || []).filter((ds) => set.has(ds.label));
+  renderChart({ labels: chart.labels || [], datasets: filteredDatasets });
 }
 
-async function refresh() {
+async function refreshSnapshot() {
   if (refreshInFlight) return;
   refreshInFlight = true;
   try {
-    const res = await fetch("/live?unit=" + encodeURIComponent(currentUnit), { cache: "no-store" });
+    const res = await fetch("/live?unit=" + encodeURIComponent(currentUnit), {
+      cache: "no-store",
+    });
     if (!res.ok) throw new Error("API " + res.status);
     const data = await res.json();
     latestData = data;
-    clockEl.textContent = data.updated_at
-      ? new Date(data.updated_at).toLocaleString()
-      : data.polled_at || "--";
     shiftEl.textContent = `${data.shift_name || "—"} · ${data.shift_range || ""}`.trim();
     if (filterHint) {
       filterHint.textContent = data.message
         ? data.message
-        : `Cloud snapshot · plant upload ~10s · UI poll 2s · ${data.pc_name || ""}`;
+        : `Near real-time · data every 10s · ${data.pc_name || ""}`.trim();
     }
     applyAndRender();
   } catch (err) {
@@ -193,18 +304,21 @@ document.querySelectorAll(".tab-btn[data-unit]").forEach((btn) => {
     filterState.department = "All";
     filterState.supervisor = "All";
     filterState.status = "All";
-    refresh();
+    refreshSnapshot();
   });
 });
 
 [filterDepartment, filterSupervisor, filterStatus].forEach((el) => {
-  if (el) el.addEventListener("change", () => {
-    filterState.department = filterDepartment.value;
-    filterState.supervisor = filterSupervisor.value;
-    filterState.status = filterStatus.value;
-    applyAndRender();
-  });
+  if (el)
+    el.addEventListener("change", () => {
+      filterState.department = filterDepartment.value;
+      filterState.supervisor = filterSupervisor.value;
+      filterState.status = filterStatus.value;
+      applyAndRender();
+    });
 });
 
-refresh();
-setInterval(refresh, REFRESH_MS);
+tickClock();
+setInterval(tickClock, CLOCK_MS);
+refreshSnapshot();
+setInterval(refreshSnapshot, SNAPSHOT_MS);

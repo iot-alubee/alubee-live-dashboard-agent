@@ -3,17 +3,18 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Machine Live Monitor · Cloud</title>
+  <title>Machine Live Monitor</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/css/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
   <div class="page">
+    <!-- Top-level unit filter (replaces Firmware tab on cloud) -->
     <nav class="tabs" aria-label="Unit">
       <button type="button" class="tab-btn active" data-unit="unit_i">Unit I</button>
       <button type="button" class="tab-btn" data-unit="unit_ii">Unit II</button>
-      <span class="cloud-note">Cloud view · Reset / OTA on plant LAN only</span>
     </nav>
 
     <section id="tab-live" class="tab-panel active">
@@ -62,7 +63,7 @@
           <span>Status</span>
           <select id="filter-status"></select>
         </label>
-        <div class="filter-hint" id="filter-hint">Remote snapshot · updates ~10s from plant PC</div>
+        <div class="filter-hint" id="filter-hint">Snapshot every 10s · clock is live</div>
       </div>
       <div class="table-wrap machines">
         <table class="data-table" id="machines-table">
@@ -85,7 +86,7 @@
             </tr>
           </thead>
           <tbody id="machines-body">
-            <tr><td colspan="14" class="empty">Waiting for cloud snapshot...</td></tr>
+            <tr><td colspan="14" class="empty">Waiting for machines...</td></tr>
           </tbody>
         </table>
       </div>
@@ -94,12 +95,20 @@
       <div class="table-wrap idle">
         <table class="data-table idle-table" id="idle-table">
           <thead>
-            <tr id="idle-head"><th>Machine No</th></tr>
+            <tr id="idle-head">
+              <th>Machine No</th>
+            </tr>
           </thead>
           <tbody id="idle-body">
-            <tr><td class="empty">No idle history in snapshot yet.</td></tr>
+            <tr><td class="empty">No idle history for this shift yet.</td></tr>
           </tbody>
         </table>
+      </div>
+
+      <div class="section-title">Shot Trend · Hourly Stacked by Machine</div>
+      <div class="chart-wrap">
+        <canvas id="shot-chart"></canvas>
+        <div id="chart-empty" class="empty chart-empty hidden">No shot trend yet.</div>
       </div>
     </section>
   </div>

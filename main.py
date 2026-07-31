@@ -109,6 +109,7 @@ def ingest():
         "machines": machines,
         "idle_history": data.get("idle_history") or [],
         "idle_columns": data.get("idle_columns") or [],
+        "chart": data.get("chart") or {"labels": [], "datasets": []},
         "pc_name": data.get("pc_name") or "",
         "agent_version": data.get("agent_version") or "1.0.0",
     }
