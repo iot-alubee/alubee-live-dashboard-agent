@@ -109,9 +109,9 @@ function statusClass(status) {
 }
 
 function effClass(dir) {
-  if (dir === "up") return "eff-up";
-  if (dir === "down") return "eff-down";
-  if (dir === "same") return "eff-same";
+  if (dir === "high" || dir === "up") return "eff-high";
+  if (dir === "mid" || dir === "same") return "eff-mid";
+  if (dir === "low" || dir === "down") return "eff-low";
   return "eff-flat";
 }
 
@@ -227,10 +227,44 @@ function renderIdle(rows, cols) {
     .join("");
 }
 
+function withTotalsLine(labels, barDatasets) {
+  const bars = (barDatasets || []).map((ds) => ({
+    ...ds,
+    type: "bar",
+    stack: "shots",
+    order: 2,
+  }));
+  const n = (labels || []).length;
+  const totals = [];
+  for (let i = 0; i < n; i++) {
+    let sum = 0;
+    for (const ds of bars) sum += Number((ds.data && ds.data[i]) || 0);
+    totals.push(sum);
+  }
+  const yMax = Math.max(1, ...totals) * 1.08;
+  const line = {
+    type: "line",
+    label: "Total",
+    data: totals,
+    borderColor: "#fbbf24",
+    backgroundColor: "#fbbf24",
+    borderWidth: 2.5,
+    pointRadius: 3.5,
+    pointHoverRadius: 5,
+    pointBackgroundColor: "#fde68a",
+    pointBorderColor: "#fbbf24",
+    tension: 0.25,
+    fill: false,
+    order: 1,
+    yAxisID: "yLine",
+  };
+  return { datasets: [...bars, line], yMax };
+}
+
 function renderChart(chart) {
   const labels = (chart && chart.labels) || [];
-  const datasets = (chart && chart.datasets) || [];
-  if (!labels.length || !datasets.length) {
+  const rawDatasets = (chart && chart.datasets) || [];
+  if (!labels.length || !rawDatasets.length) {
     if (chartEmpty) chartEmpty.classList.remove("hidden");
     if (shotChart) {
       shotChart.destroy();
@@ -239,10 +273,13 @@ function renderChart(chart) {
     return;
   }
   if (chartEmpty) chartEmpty.classList.add("hidden");
+  const { datasets, yMax } = withTotalsLine(labels, rawDatasets);
   const ctx = document.getElementById("shot-chart").getContext("2d");
   if (shotChart) {
     shotChart.data.labels = labels;
     shotChart.data.datasets = datasets;
+    shotChart.options.scales.y.max = yMax;
+    shotChart.options.scales.yLine.max = yMax;
     shotChart.update("none");
     return;
   }
@@ -276,9 +313,17 @@ function renderChart(chart) {
         y: {
           stacked: true,
           beginAtZero: true,
+          max: yMax,
           ticks: { color: "#d6e4f0" },
           grid: { color: "rgba(157,187,212,0.12)" },
           title: { display: true, text: "Shots", color: "#9dbbd4" },
+        },
+        yLine: {
+          stacked: false,
+          beginAtZero: true,
+          max: yMax,
+          display: false,
+          grid: { drawOnChartArea: false },
         },
       },
     },
@@ -320,7 +365,9 @@ function applyAndRender() {
   renderIdle(idleRows, latestData.idle_columns || []);
 
   const chart = latestData.chart || { labels: [], datasets: [] };
-  const filteredDatasets = (chart.datasets || []).filter((ds) => set.has(ds.label));
+  const filteredDatasets = (chart.datasets || []).filter(
+    (ds) => ds.label !== "Total" && set.has(ds.label)
+  );
   renderChart({ labels: chart.labels || [], datasets: filteredDatasets });
 }
 

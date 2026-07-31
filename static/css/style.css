@@ -234,6 +234,17 @@ td.machine-no { font-weight: 700; color: #1b4965; }
 .badge-reset { background: #ffe8cc; color: #9a3412; }
 .badge-reconnected { background: #cfe2ff; color: #084298; }
 .reset-bad { color: #b91c1c; font-weight: 700; }
+.eff-high { color: #188038; font-weight: 800; }
+.eff-mid {
+  color: #b45309;
+  font-weight: 800;
+  background: #fef3c7;
+  border-radius: 6px;
+  padding: 2px 8px;
+}
+.eff-low { color: #d93025; font-weight: 800; }
+.eff-flat { color: #1b263b; font-weight: 600; }
+/* legacy aliases */
 .eff-up { color: #188038; font-weight: 800; }
 .eff-down { color: #d93025; font-weight: 800; }
 .eff-same {
@@ -243,7 +254,6 @@ td.machine-no { font-weight: 700; color: #1b4965; }
   border-radius: 6px;
   padding: 2px 8px;
 }
-.eff-flat { color: #1b263b; font-weight: 600; }
 .idle-empty { color: #94a3b8; font-weight: 600; }
 .idle-ok { color: #1b263b; font-weight: 600; }
 .idle-warn {
