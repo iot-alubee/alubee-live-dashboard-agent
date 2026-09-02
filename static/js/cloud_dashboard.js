@@ -460,17 +460,15 @@ async function refreshSnapshot() {
   }
 }
 
-document.querySelectorAll(".tab-btn[data-unit]").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll(".tab-btn[data-unit]").forEach((b) => b.classList.remove("active"));
-    btn.classList.add("active");
-    currentUnit = btn.dataset.unit;
-    filterState.department = "";
-    filterState.supervisor = "";
-    filterState.status = "All";
+window.setLiveUnit = function (unitId) {
+  currentUnit = unitId;
+  filterState.department = "";
+  filterState.supervisor = "";
+  filterState.status = "All";
+  if (document.getElementById("tab-live")?.classList.contains("active")) {
     refreshSnapshot();
-  });
-});
+  }
+};
 
 [filterDepartment, filterSupervisor, filterStatus].forEach((el) => {
   if (el)

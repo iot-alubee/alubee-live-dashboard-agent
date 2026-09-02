@@ -525,10 +525,20 @@ td.machine-no { font-weight: 700; color: #1b4965; }
 .tick-empty { color: #94a3b8; }
 
 /* ---- History tab ---- */
-.main-tabs { margin-bottom: 0.15rem; }
-.unit-tabs {
-  background: rgba(8, 18, 30, 0.55);
-  border-color: rgba(148, 183, 214, 0.25);
+.top-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.15rem;
+}
+.nav-group {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+}
+.nav-modes {
+  margin-left: auto;
 }
 .history-stats .stat-eff { background: #d9f2e3; color: #146c43; }
 .history-stats .stat-loss { background: #fde2e4; color: #a4133c; }

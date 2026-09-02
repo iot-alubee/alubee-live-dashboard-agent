@@ -11,17 +11,18 @@
 </head>
 <body>
   <div class="page">
-    <nav class="tabs main-tabs" aria-label="Main">
-      <button type="button" class="tab-btn active" data-tab="live">Live</button>
-      <button type="button" class="tab-btn" data-tab="history">History</button>
+    <nav class="tabs top-nav" aria-label="Navigation">
+      <div class="nav-group nav-units">
+        <button type="button" class="tab-btn active" data-unit="unit_i">Unit I</button>
+        <button type="button" class="tab-btn" data-unit="unit_ii">Unit II</button>
+      </div>
+      <div class="nav-group nav-modes">
+        <button type="button" class="tab-btn active" data-tab="live">Live</button>
+        <button type="button" class="tab-btn" data-tab="history">History</button>
+      </div>
     </nav>
 
     <section id="tab-live" class="tab-panel active">
-    <nav class="tabs unit-tabs" aria-label="Unit">
-      <button type="button" class="tab-btn active" data-unit="unit_i">Unit I</button>
-      <button type="button" class="tab-btn" data-unit="unit_ii">Unit II</button>
-    </nav>
-
       <div class="header-row">
         <div class="header-card header-left">
           <div>
@@ -153,13 +154,7 @@
       </div>
 
       <div class="filter-bar history-filters">
-        <label class="filter-item">
-          <span>Unit</span>
-          <select id="hist-unit">
-            <option value="unit_i">Unit I</option>
-            <option value="unit_ii">Unit II</option>
-          </select>
-        </label>
+        <input type="hidden" id="hist-unit" value="unit_i" />
         <label class="filter-item">
           <span>Date</span>
           <select id="hist-date"></select>

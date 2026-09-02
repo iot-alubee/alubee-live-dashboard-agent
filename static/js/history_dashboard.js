@@ -276,8 +276,15 @@ async function loadDashboard() {
   }
 }
 
+function setActiveUnit(unitId) {
+  document.querySelectorAll(".tab-btn[data-unit]").forEach((b) => {
+    b.classList.toggle("active", b.dataset.unit === unitId);
+  });
+  if (histEls.unit) histEls.unit.value = unitId;
+}
+
 function switchMainTab(tab) {
-  document.querySelectorAll(".main-tabs .tab-btn").forEach((b) => {
+  document.querySelectorAll(".nav-modes .tab-btn").forEach((b) => {
     b.classList.toggle("active", b.dataset.tab === tab);
   });
   document.getElementById("tab-live")?.classList.toggle("active", tab === "live");
@@ -285,11 +292,20 @@ function switchMainTab(tab) {
   if (tab === "history") loadShiftList();
 }
 
-document.querySelectorAll(".main-tabs .tab-btn").forEach((btn) => {
+document.querySelectorAll(".nav-modes .tab-btn").forEach((btn) => {
   btn.addEventListener("click", () => switchMainTab(btn.dataset.tab));
 });
 
-histEls.unit?.addEventListener("change", loadShiftList);
+document.querySelectorAll(".tab-btn[data-unit]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const unitId = btn.dataset.unit;
+    setActiveUnit(unitId);
+    if (typeof window.setLiveUnit === "function") window.setLiveUnit(unitId);
+    if (document.getElementById("tab-history")?.classList.contains("active")) {
+      loadShiftList();
+    }
+  });
+});
 histEls.apply?.addEventListener("click", loadDashboard);
 histEls.date?.addEventListener("change", () => {
   const sid = currentShiftId();
