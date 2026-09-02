@@ -11,8 +11,9 @@ Uses Firestore when available; falls back to in-memory for local test.
 
 from __future__ import annotations
 
+import base64
 import os
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from flask import Flask, jsonify, request, render_template
 
@@ -25,6 +26,7 @@ from archive_service import (
     should_archive_shift,
 )
 from history_analytics import build_history_dashboard
+from machine_registry import enrich_machine, filter_options, live_filter_options
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 
@@ -32,6 +34,14 @@ INGEST_API_KEY = os.environ.get("INGEST_API_KEY", "").strip()
 USE_FIRESTORE = os.environ.get("USE_FIRESTORE", "1").strip() not in ("0", "false", "no")
 FIRESTORE_DATABASE = os.environ.get("FIRESTORE_DATABASE", "(default)").strip() or "(default)"
 GCS_ARCHIVE_BUCKET = os.environ.get("GCS_ARCHIVE_BUCKET", "").strip()
+# Cloud Run service lives in alubee-prod; Firestore snapshots + shift_archives are there.
+# GCS archive bucket may be in live-monitor-agent (cross-project bucket IAM).
+GCP_PROJECT = (
+    os.environ.get("GOOGLE_CLOUD_PROJECT")
+    or os.environ.get("GCP_PROJECT")
+    or os.environ.get("GCLOUD_PROJECT")
+    or "alubee-prod"
+).strip()
 
 # In-memory fallback: { unit_id: payload }
 _MEMORY: dict = {}
@@ -44,8 +54,8 @@ if USE_FIRESTORE:
     try:
         from google.cloud import firestore
 
-        _db = firestore.Client(database=FIRESTORE_DATABASE)
-        print(f"Firestore client OK database={FIRESTORE_DATABASE}")
+        _db = firestore.Client(project=GCP_PROJECT, database=FIRESTORE_DATABASE)
+        print(f"Firestore client OK project={GCP_PROJECT} database={FIRESTORE_DATABASE}")
     except Exception as e:
         _db_error = str(e)
         print(f"Firestore unavailable ({e}) — using memory store")
@@ -55,8 +65,8 @@ if GCS_ARCHIVE_BUCKET:
     try:
         from google.cloud import storage
 
-        _storage = storage.Client()
-        print(f"GCS client OK bucket={GCS_ARCHIVE_BUCKET}")
+        _storage = storage.Client(project=GCP_PROJECT)
+        print(f"GCS client OK project={GCP_PROJECT} bucket={GCS_ARCHIVE_BUCKET}")
     except Exception as e:
         _storage_error = str(e)
         print(f"GCS unavailable ({e})")
@@ -93,6 +103,68 @@ def _load_unit(unit_id: str):
     return _MEMORY.get(unit_id)
 
 
+def _enrich_live_payload(unit_id: str, data: dict) -> dict:
+    """Add registry Department/Supervisor and filter options (same as plant dashboard)."""
+    shift_name = str(data.get("shift_name") or "")
+    out = dict(data)
+
+    machines = []
+    for m in data.get("machines") or []:
+        row = dict(m)
+        mid = row.get("Machine No") or row.get("machine_no")
+        if mid:
+            meta = enrich_machine(unit_id, str(mid), shift_name)
+            if not row.get("Department"):
+                row["Department"] = meta["department"]
+            if not row.get("Supervisor"):
+                row["Supervisor"] = meta["supervisor"]
+            if not row.get("Unit"):
+                row["Unit"] = meta["unit"]
+        machines.append(row)
+    out["machines"] = machines
+
+    idle_rows = []
+    for r in data.get("idle_history") or []:
+        row = dict(r)
+        mid = row.get("Machine No")
+        if mid:
+            meta = enrich_machine(unit_id, str(mid), shift_name)
+            if not row.get("Department"):
+                row["Department"] = meta["department"]
+            if not row.get("Supervisor"):
+                row["Supervisor"] = meta["supervisor"]
+        idle_rows.append(row)
+    out["idle_history"] = idle_rows
+
+    out["filters"] = _live_filters_from_snapshot(unit_id, shift_name, machines)
+    return out
+
+
+def _live_filters_from_snapshot(unit_id: str, shift_name: str, machines: list) -> dict:
+    """Registry options merged with supervisors/depts actually present in the snapshot."""
+    base = live_filter_options(unit_id, shift_name)
+    depts = set(base.get("departments") or [])
+    sups = set(base.get("supervisors") or [])
+    sup_by_dept: dict[str, set[str]] = {
+        k: set(v) for k, v in (base.get("supervisors_by_department") or {}).items()
+    }
+    for m in machines or []:
+        dept = str(m.get("Department") or "").strip()
+        sup = str(m.get("Supervisor") or "").strip()
+        if dept and dept not in ("—", "-"):
+            depts.add(dept)
+            if sup and sup not in ("—", "-"):
+                sup_by_dept.setdefault(dept, set()).add(sup)
+        if sup and sup not in ("—", "-"):
+            sups.add(sup)
+    return {
+        **base,
+        "departments": sorted(depts),
+        "supervisors": sorted(sups),
+        "supervisors_by_department": {k: sorted(v) for k, v in sup_by_dept.items()},
+    }
+
+
 @app.get("/health")
 def health():
     return jsonify(
@@ -101,6 +173,7 @@ def health():
             "firestore": _db is not None,
             "firestore_database": FIRESTORE_DATABASE,
             "firestore_error": _db_error,
+            "gcp_project": GCP_PROJECT,
             "gcs_bucket": GCS_ARCHIVE_BUCKET or None,
             "gcs": _storage is not None and bool(GCS_ARCHIVE_BUCKET),
             "gcs_error": _storage_error,
@@ -222,6 +295,131 @@ def history_shifts():
         return jsonify({"ok": False, "error": "history_list_failed", "detail": str(e)}), 500
 
 
+@app.get("/api/history/filters")
+def history_filters():
+    unit_id = str(request.args.get("unit") or "unit_i").strip().lower()
+    date_str = str(request.args.get("date") or "").strip()
+    shift = str(request.args.get("shift") or "I").strip().upper()
+    if unit_id not in ("unit_i", "unit_ii"):
+        return jsonify({"ok": False, "error": "unit must be unit_i or unit_ii"}), 400
+    if not date_str:
+        return jsonify({"ok": False, "error": "date required (YYYY-MM-DD)"}), 400
+    try:
+        on_date = date.fromisoformat(date_str)
+    except ValueError:
+        return jsonify({"ok": False, "error": "invalid date"}), 400
+    shift_name = "Shift II" if shift == "II" else "Shift I"
+    return jsonify({"ok": True, "filters": filter_options(unit_id, shift_name, on_date)})
+
+
+def _strip_idle_internals(payload: dict) -> dict:
+    for row in payload.get("idle_history") or []:
+        for k in list(row.keys()):
+            if k.startswith("_"):
+                row.pop(k, None)
+    return payload
+
+
+def _history_process_payload(
+    *,
+    unit_id: str,
+    shift_id: str,
+    csv_bytes: bytes,
+    department: str = "",
+    supervisor: str = "",
+    machine: str = "",
+    time_from: str = "",
+    time_to: str = "",
+    archive_meta: dict | None = None,
+) -> dict:
+    payload = build_history_dashboard(
+        unit_id=unit_id,
+        shift_id=shift_id,
+        csv_bytes=csv_bytes,
+        department=department,
+        supervisor=supervisor,
+        machine=machine,
+        time_from=time_from,
+        time_to=time_to,
+    )
+    if archive_meta:
+        payload["archive"] = {
+            "archived_at": archive_meta.get("archived_at"),
+            "row_count": archive_meta.get("row_count"),
+            "bytes": archive_meta.get("bytes"),
+            "gcs_path": archive_meta.get("gcs_path"),
+        }
+    return _strip_idle_internals(payload)
+
+
+@app.get("/api/history/day")
+def history_day():
+    """Download archived CSV(s) for a calendar day (GCS). Client caches for fast re-filter."""
+    unit_id = str(request.args.get("unit") or "unit_i").strip().lower()
+    date_str = str(request.args.get("date") or "").strip()
+    if unit_id not in ("unit_i", "unit_ii"):
+        return jsonify({"ok": False, "error": "unit must be unit_i or unit_ii"}), 400
+    if not date_str:
+        return jsonify({"ok": False, "error": "date required (YYYY-MM-DD)"}), 400
+    if _storage is None:
+        return jsonify({"ok": False, "error": "gcs_not_configured"}), 503
+
+    shifts = {}
+    try:
+        for suffix in ("I", "II"):
+            shift_id = f"{date_str}-{suffix}"
+            meta = get_shift_archive(_db, unit_id, shift_id)
+            if not meta:
+                continue
+            csv_bytes = download_shift_csv(_storage, meta["gcs_path"])
+            shifts[suffix] = {
+                "shift_id": shift_id,
+                "csv_b64": base64.b64encode(csv_bytes).decode("ascii"),
+                "archive": {
+                    "archived_at": meta.get("archived_at"),
+                    "row_count": meta.get("row_count"),
+                    "bytes": meta.get("bytes"),
+                    "gcs_path": meta.get("gcs_path"),
+                },
+            }
+        if not shifts:
+            return jsonify({"ok": False, "error": "no_archives_for_date", "date": date_str}), 404
+        return jsonify({"ok": True, "unit_id": unit_id, "date": date_str, "shifts": shifts})
+    except Exception as e:
+        print(f"HISTORY day error: {e}")
+        return jsonify({"ok": False, "error": "history_day_failed", "detail": str(e)}), 500
+
+
+@app.post("/api/history/process")
+def history_process():
+    """Process cached CSV with filters — no GCS download."""
+    body = request.get_json(silent=True) or {}
+    unit_id = str(body.get("unit") or "unit_i").strip().lower()
+    shift_id = str(body.get("shift_id") or "").strip()
+    csv_b64 = str(body.get("csv_b64") or "").strip()
+    if unit_id not in ("unit_i", "unit_ii"):
+        return jsonify({"ok": False, "error": "unit must be unit_i or unit_ii"}), 400
+    if not shift_id or not csv_b64:
+        return jsonify({"ok": False, "error": "shift_id and csv_b64 required"}), 400
+    try:
+        csv_bytes = base64.b64decode(csv_b64)
+        payload = _history_process_payload(
+            unit_id=unit_id,
+            shift_id=shift_id,
+            csv_bytes=csv_bytes,
+            department=str(body.get("department") or "").strip(),
+            supervisor=str(body.get("supervisor") or "").strip(),
+            machine=str(body.get("machine") or "").strip(),
+            time_from=str(body.get("time_from") or "").strip(),
+            time_to=str(body.get("time_to") or "").strip(),
+            archive_meta=body.get("archive") if isinstance(body.get("archive"), dict) else None,
+        )
+        return jsonify(payload)
+    except Exception as e:
+        print(f"HISTORY process error: {e}")
+        return jsonify({"ok": False, "error": "history_process_failed", "detail": str(e)}), 500
+
+
 @app.get("/api/history/dashboard")
 def history_dashboard():
     unit_id = str(request.args.get("unit") or "unit_i").strip().lower()
@@ -239,26 +437,17 @@ def history_dashboard():
 
     try:
         csv_bytes = download_shift_csv(_storage, meta["gcs_path"])
-        payload = build_history_dashboard(
+        payload = _history_process_payload(
             unit_id=unit_id,
             shift_id=shift_id,
             csv_bytes=csv_bytes,
             department=str(request.args.get("department") or "").strip(),
             supervisor=str(request.args.get("supervisor") or "").strip(),
             machine=str(request.args.get("machine") or "").strip(),
-            idle_type=str(request.args.get("idle_type") or "").strip(),
+            time_from=str(request.args.get("time_from") or "").strip(),
+            time_to=str(request.args.get("time_to") or "").strip(),
+            archive_meta=meta,
         )
-        payload["archive"] = {
-            "archived_at": meta.get("archived_at"),
-            "row_count": meta.get("row_count"),
-            "bytes": meta.get("bytes"),
-            "gcs_path": meta.get("gcs_path"),
-        }
-        # Strip internal analytics keys from API response
-        for row in payload.get("idle_history") or []:
-            for k in list(row.keys()):
-                if k.startswith("_"):
-                    row.pop(k, None)
         return jsonify(payload)
     except Exception as e:
         print(f"HISTORY dashboard error: {e}")
@@ -283,11 +472,12 @@ def live():
                 "unit_id": unit_id,
                 "stale": True,
                 "machines": [],
+                "filters": live_filter_options(unit_id, ""),
                 "message": "No snapshot yet — is cloud_agent running on that PC?",
             }
         )
 
-    out = dict(data)
+    out = _enrich_live_payload(unit_id, data)
     out["ok"] = True
     out["stale"] = False
     out["polled_at"] = _now_iso()

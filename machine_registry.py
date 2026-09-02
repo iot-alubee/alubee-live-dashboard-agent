@@ -75,11 +75,27 @@ def filter_options(unit_id: str, shift_name: str, on_date: date | None = None) -
             if supervisor_for_shift(m, shift_name, unit_id, on_date)
         }
     )
+    supervisors_by_department: dict[str, set[str]] = {}
+    for m in machines:
+        dept = m.get("department") or ""
+        sup = supervisor_for_shift(m, shift_name, unit_id, on_date)
+        if dept and sup:
+            supervisors_by_department.setdefault(dept, set()).add(sup)
     machine_nos = sorted({str(m.get("machine_no")) for m in machines if m.get("machine_no")})
+    machines_detail = []
+    for m in machines:
+        mn = str(m.get("machine_no") or "")
+        if not mn:
+            continue
+        dept = m.get("department") or ""
+        sup = supervisor_for_shift(m, shift_name, unit_id, on_date)
+        machines_detail.append({"machine_no": mn, "department": dept, "supervisor": sup})
     return {
         "departments": departments,
         "supervisors": supervisors,
+        "supervisors_by_department": {k: sorted(v) for k, v in supervisors_by_department.items()},
         "machines": machine_nos,
+        "machines_detail": machines_detail,
         "idle_types": [
             "Break",
             "Setting",
@@ -91,4 +107,16 @@ def filter_options(unit_id: str, shift_name: str, on_date: date | None = None) -
             "Without Notice",
             "IoT/Network",
         ],
+    }
+
+
+def live_filter_options(unit_id: str, shift_name: str, on_date: date | None = None) -> dict:
+    """Filter metadata for the Live tab (matches plant dashboard behaviour)."""
+    opts = filter_options(unit_id, shift_name, on_date)
+    return {
+        "departments": opts["departments"],
+        "supervisors": opts["supervisors"],
+        "supervisors_by_department": opts["supervisors_by_department"],
+        "statuses": ["All", "Running", "Idle", "Disconnected", "Reset"],
+        "supervisor_swapped": is_supervisor_swapped(unit_id, on_date),
     }

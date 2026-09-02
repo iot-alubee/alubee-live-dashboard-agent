@@ -24,6 +24,7 @@ let latestData = null;
 let refreshInFlight = false;
 let idleColsKey = "";
 let shotChart = null;
+let filtersReady = false;
 
 const filterState = {
   department: "",
@@ -180,16 +181,12 @@ function effClass(dir) {
   return "eff-flat";
 }
 
-function uniqueSorted(vals) {
-  return [...new Set(vals.filter(Boolean))].sort((a, b) =>
-    String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" })
-  );
-}
-
 function fillSelect(sel, options, selected, includeAll) {
   const vals = includeAll ? ["All", ...options.filter((o) => o !== "All")] : options.slice();
   let prev = selected;
-  if (!vals.includes(prev)) prev = vals[0] || (includeAll ? "All" : "");
+  if (!vals.includes(prev)) {
+    prev = includeAll ? "All" : vals[0] || "";
+  }
   sel.innerHTML = vals
     .map((v) => `<option value="${esc(v)}"${v === prev ? " selected" : ""}>${esc(v)}</option>`)
     .join("");
@@ -197,26 +194,76 @@ function fillSelect(sel, options, selected, includeAll) {
   return prev;
 }
 
-function setupFilters(machines) {
-  const depts = uniqueSorted(machines.map((m) => m.Department));
-  filterState.department = fillSelect(filterDepartment, depts, filterState.department, false);
+function cascadeSupervisors(filterMeta) {
+  const dept = filterState.department;
+  const byDept = filterMeta?.supervisors_by_department || {};
+  if (dept && byDept[dept]?.length) return byDept[dept];
+  return filterMeta?.supervisors || [];
+}
 
-  const sups = uniqueSorted(
-    machines
-      .filter((m) => !filterState.department || m.Department === filterState.department)
-      .map((m) => m.Supervisor)
+function supervisorsInSnapshot(machines) {
+  return [
+    ...new Set(
+      (machines || [])
+        .map((m) => String(m.Supervisor || "").trim())
+        .filter((s) => s && s !== "—" && s !== "-")
+    ),
+  ].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+}
+
+function setupFilters(filterMeta) {
+  if (!filterMeta) return;
+  const departments = filterMeta.departments || [];
+  const statuses = filterMeta.statuses || ["All", "Running", "Idle", "Disconnected", "Reset"];
+  const snapshotSups = supervisorsInSnapshot(latestData?.machines);
+
+  if (!filtersReady) {
+    filterState.department = departments[0] || "";
+    const cascaded = cascadeSupervisors(filterMeta);
+    filterState.supervisor =
+      cascaded.find((s) => snapshotSups.includes(s)) ||
+      snapshotSups[0] ||
+      cascaded[0] ||
+      "";
+    filterState.status = "All";
+    filtersReady = true;
+  }
+
+  if (departments.length && !departments.includes(filterState.department)) {
+    filterState.department = departments[0];
+  }
+
+  filterState.department = fillSelect(
+    filterDepartment,
+    departments,
+    filterState.department,
+    false
   );
-  filterState.supervisor = fillSelect(filterSupervisor, sups, filterState.supervisor, false);
 
-  const statuses = ["All", "Running", "Idle", "Disconnected", "Reset"];
+  const supervisors = cascadeSupervisors(filterMeta);
+  if (supervisors.length && !supervisors.includes(filterState.supervisor)) {
+    filterState.supervisor = supervisors[0];
+  }
+  filterState.supervisor = fillSelect(
+    filterSupervisor,
+    supervisors,
+    filterState.supervisor,
+    false
+  );
   filterState.status = fillSelect(filterStatus, statuses, filterState.status, true);
+
+  if (filterHint && !latestData?.message) {
+    const swap = filterMeta.supervisor_swapped
+      ? "Supervisors swapped this week"
+      : "Base supervisor week";
+    filterHint.textContent = swap;
+  }
 }
 
 function rowMatches(r) {
   if (filterState.department && r.Department !== filterState.department) return false;
   if (filterState.supervisor && r.Supervisor !== filterState.supervisor) return false;
-  if (filterState.status && filterState.status !== "All" && r.Status !== filterState.status)
-    return false;
+  if (filterState.status !== "All" && r.Status !== filterState.status) return false;
   return true;
 }
 
@@ -308,13 +355,14 @@ function withTotalsLine(labels, barDatasets) {
     label: "Total",
     data: totals,
     borderColor: "#fbbf24",
-    backgroundColor: "#fbbf24",
+    backgroundColor: "rgba(251, 191, 36, 0.15)",
     borderWidth: 2.5,
-    pointRadius: 3.5,
-    pointHoverRadius: 5,
+    pointRadius: 4,
+    pointHoverRadius: 6,
     pointBackgroundColor: "#fde68a",
     pointBorderColor: "#fbbf24",
-    tension: 0.25,
+    pointBorderWidth: 2,
+    tension: 0.3,
     fill: false,
     order: 1,
     yAxisID: "yLine",
@@ -322,10 +370,94 @@ function withTotalsLine(labels, barDatasets) {
   return { datasets: [...bars, line], yMax };
 }
 
+function liveChartOptions(yMax) {
+  const c = typeof window.getDashboardChartColors === "function"
+    ? window.getDashboardChartColors()
+    : {
+        tick: "#bae6fd",
+        grid: "rgba(76, 201, 240, 0.1)",
+        axisTitle: "#7dd3fc",
+        legend: "#e0f2fe",
+        tooltipBg: "rgba(13, 27, 42, 0.95)",
+        tooltipTitle: "#4cc9f0",
+        tooltipBody: "#e8f4ff",
+        tooltipBorder: "rgba(76, 201, 240, 0.35)",
+      };
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    datasets: {
+      bar: {
+        categoryPercentage: 0.65,
+        barPercentage: 0.85,
+        maxBarThickness: 56,
+      },
+    },
+    plugins: {
+      legend: {
+        position: "top",
+        labels: {
+          color: c.legend,
+          font: { family: "Montserrat", size: 11, weight: "600" },
+          boxWidth: 12,
+          padding: 14,
+        },
+      },
+      tooltip: {
+        mode: "index",
+        intersect: false,
+        backgroundColor: c.tooltipBg,
+        titleColor: c.tooltipTitle,
+        bodyColor: c.tooltipBody,
+        borderColor: c.tooltipBorder,
+        borderWidth: 1,
+      },
+    },
+    scales: {
+      x: {
+        stacked: true,
+        ticks: { color: c.tick, maxRotation: 25, minRotation: 0, autoSkip: true },
+        grid: { color: c.grid },
+        title: { display: true, text: "Time Bucket", color: c.axisTitle, font: { weight: "600" } },
+      },
+      y: {
+        stacked: true,
+        beginAtZero: true,
+        max: yMax,
+        ticks: { color: c.tick },
+        grid: { color: c.grid },
+        title: { display: true, text: "Shots", color: c.axisTitle, font: { weight: "600" } },
+      },
+      yLine: {
+        stacked: false,
+        beginAtZero: true,
+        max: yMax,
+        display: false,
+        grid: { drawOnChartArea: false },
+      },
+    },
+  };
+}
+
+function applyLiveChartTheme() {
+  if (!shotChart) return;
+  const yMax = shotChart.options.scales.y.max;
+  shotChart.options = liveChartOptions(yMax);
+  shotChart.update("none");
+}
+
 function renderChart(chart) {
+  const canvas = document.getElementById("shot-chart");
+  if (!canvas || typeof Chart === "undefined") return;
+
   const labels = (chart && chart.labels) || [];
   const rawDatasets = (chart && chart.datasets) || [];
-  if (!labels.length || !rawDatasets.length) {
+  const hasData =
+    labels.length > 0 &&
+    rawDatasets.some((ds) => (ds.data || []).some((v) => Number(v) > 0));
+
+  if (!hasData) {
+    canvas.classList.add("hidden");
     if (chartEmpty) chartEmpty.classList.remove("hidden");
     if (shotChart) {
       shotChart.destroy();
@@ -333,68 +465,39 @@ function renderChart(chart) {
     }
     return;
   }
+
+  canvas.classList.remove("hidden");
   if (chartEmpty) chartEmpty.classList.add("hidden");
+
   const { datasets, yMax } = withTotalsLine(labels, rawDatasets);
-  const ctx = document.getElementById("shot-chart").getContext("2d");
+  const ctx = canvas.getContext("2d");
   if (shotChart) {
     shotChart.data.labels = labels;
     shotChart.data.datasets = datasets;
-    shotChart.options.scales.y.max = yMax;
-    shotChart.options.scales.yLine.max = yMax;
+    shotChart.options = liveChartOptions(yMax);
     shotChart.update("none");
+    requestAnimationFrame(() => shotChart.resize());
     return;
   }
   shotChart = new Chart(ctx, {
     type: "bar",
     data: { labels, datasets },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      datasets: {
-        bar: {
-          categoryPercentage: 0.65,
-          barPercentage: 0.85,
-          maxBarThickness: 56,
-        },
-      },
-      plugins: {
-        legend: {
-          position: "top",
-          labels: { color: "#edf2f7", font: { family: "Montserrat", size: 11 } },
-        },
-        tooltip: { mode: "index", intersect: false },
-      },
-      scales: {
-        x: {
-          stacked: true,
-          ticks: { color: "#d6e4f0", maxRotation: 25, minRotation: 0, autoSkip: true },
-          grid: { color: "rgba(157,187,212,0.12)" },
-          title: { display: true, text: "Time Bucket", color: "#9dbbd4" },
-        },
-        y: {
-          stacked: true,
-          beginAtZero: true,
-          max: yMax,
-          ticks: { color: "#d6e4f0" },
-          grid: { color: "rgba(157,187,212,0.12)" },
-          title: { display: true, text: "Shots", color: "#9dbbd4" },
-        },
-        yLine: {
-          stacked: false,
-          beginAtZero: true,
-          max: yMax,
-          display: false,
-          grid: { drawOnChartArea: false },
-        },
-      },
-    },
+    options: liveChartOptions(yMax),
   });
+  requestAnimationFrame(() => shotChart.resize());
 }
 
-function applyAndRender() {
+function syncFilterStateFromDom() {
+  if (filterDepartment) filterState.department = filterDepartment.value;
+  if (filterSupervisor) filterState.supervisor = filterSupervisor.value;
+  if (filterStatus) filterState.status = filterStatus.value || "All";
+}
+
+function applyAndRender(rebuildFilters = false) {
   if (!latestData) return;
   const all = latestData.machines || [];
-  setupFilters(all);
+  if (rebuildFilters) setupFilters(latestData.filters);
+  syncFilterStateFromDom();
   const machines = all.filter(rowMatches);
   const set = new Set(machines.map((m) => m["Machine No"]));
 
@@ -413,9 +516,10 @@ function applyAndRender() {
 
   const idleRows = (latestData.idle_history || [])
     .filter((r) => {
+      if (!set.size) return false;
       if (filterState.department && r.Department !== filterState.department) return false;
       if (filterState.supervisor && r.Supervisor !== filterState.supervisor) return false;
-      return set.size ? set.has(r["Machine No"]) : true;
+      return set.has(r["Machine No"]);
     })
     .sort((a, b) =>
       String(a["Machine No"] || "").localeCompare(String(b["Machine No"] || ""), undefined, {
@@ -442,14 +546,23 @@ async function refreshSnapshot() {
     });
     if (!res.ok) throw new Error("API " + res.status);
     const data = await res.json();
+    const prevUnit = latestData?.unit_id;
+    const prevShift = latestData?.shift_name;
     latestData = data;
     shiftEl.textContent = `${data.shift_name || "—"} · ${data.shift_range || ""}`.trim();
     if (filterHint) {
       filterHint.textContent = data.message
         ? data.message
-        : "Clock + Elapsed live · data every 10s";
+        : data.filters?.supervisor_swapped
+        ? "Supervisors swapped this week"
+        : "Base supervisor week";
     }
-    applyAndRender();
+    const rebuildFilters =
+      !filtersReady ||
+      !prevUnit ||
+      prevUnit !== data.unit_id ||
+      prevShift !== data.shift_name;
+    applyAndRender(rebuildFilters);
     updateServerStatus(data);
   } catch (err) {
     console.error(err);
@@ -460,33 +573,47 @@ async function refreshSnapshot() {
   }
 }
 
-window.setLiveUnit = function (unitId) {
+[filterDepartment, filterSupervisor, filterStatus].forEach((el) => {
+  if (el)
+    el.addEventListener("change", (ev) => {
+      syncFilterStateFromDom();
+      if (ev.target === filterDepartment && latestData?.filters) {
+        setupFilters(latestData.filters);
+        syncFilterStateFromDom();
+      }
+      applyAndRender(false);
+    });
+});
+
+function selectUnit(unitId) {
   currentUnit = unitId;
+  document.querySelectorAll(".tab-btn[data-unit]").forEach((b) => {
+    b.classList.toggle("active", b.dataset.unit === unitId);
+  });
+  const histUnit = document.getElementById("hist-unit");
+  if (histUnit) histUnit.value = unitId;
+  filtersReady = false;
   filterState.department = "";
   filterState.supervisor = "";
   filterState.status = "All";
   if (document.getElementById("tab-live")?.classList.contains("active")) {
     refreshSnapshot();
+  } else if (typeof window.onHistoryUnitChange === "function") {
+    window.onHistoryUnitChange(unitId);
   }
-};
+}
 
-[filterDepartment, filterSupervisor, filterStatus].forEach((el) => {
-  if (el)
-    el.addEventListener("change", () => {
-      filterState.department = filterDepartment.value;
-      filterState.supervisor = filterSupervisor.value;
-      filterState.status = filterStatus.value;
-      // Re-cascade supervisors when department changes
-      if (el === filterDepartment && latestData) {
-        setupFilters(latestData.machines || []);
-        filterState.department = filterDepartment.value;
-        filterState.supervisor = filterSupervisor.value;
-      }
-      applyAndRender();
-    });
+document.querySelectorAll(".tab-btn[data-unit]").forEach((btn) => {
+  btn.addEventListener("click", () => selectUnit(btn.dataset.unit));
 });
+
+window.setLiveUnit = selectUnit;
+window.resizeLiveChart = function () {
+  if (shotChart) shotChart.resize();
+};
 
 tickClock();
 setInterval(tickClock, CLOCK_MS);
+window.refreshLiveSnapshot = refreshSnapshot;
 refreshSnapshot();
 setInterval(refreshSnapshot, SNAPSHOT_MS);

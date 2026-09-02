@@ -22,6 +22,17 @@ IDLE_HISTORY_COLS = [
     ("Without Notice", "without_notice"),
     ("IoT/Network", "disconnected"),
 ]
+IDLE_CHART_COLORS = {
+    "Break": "#22d3ee",
+    "Setting": "#a78bfa",
+    "Maintenance": "#f87171",
+    "Mould": "#e879f9",
+    "No Load": "#94a3b8",
+    "Man Power": "#60a5fa",
+    "Powercut": "#fde047",
+    "Without Notice": "#fb923c",
+    "IoT/Network": "#4ade80",
+}
 CYCLE_MIN_SEC = 3.0
 CYCLE_MAX_SEC = 70.0
 WITHOUT_NOTICE_GRACE_SEC = 5 * 60
@@ -42,6 +53,39 @@ def parse_shift_id(shift_id: str) -> tuple[str, datetime, datetime]:
         end = day.replace(hour=20, minute=0, second=0, microsecond=0)
         label = "Shift I"
     return label, start, end
+
+
+def _clock_in_shift(shift_start: datetime, shift_end: datetime, hhmm: str) -> datetime | None:
+    if not hhmm:
+        return None
+    parts = str(hhmm).strip().split(":")
+    if len(parts) < 2:
+        return None
+    h, m = int(parts[0]), int(parts[1])
+    for base in (shift_start, shift_start + timedelta(days=1)):
+        t = base.replace(hour=h, minute=m, second=0, microsecond=0)
+        if shift_start <= t < shift_end:
+            return t
+    return None
+
+
+def resolve_time_window(
+    shift_start: datetime,
+    shift_end: datetime,
+    time_from: str = "",
+    time_to: str = "",
+) -> tuple[datetime, datetime]:
+    window_start = shift_start
+    window_end = shift_end
+    if time_from:
+        t = _clock_in_shift(shift_start, shift_end, time_from)
+        if t is not None:
+            window_start = t
+    if time_to:
+        t = _clock_in_shift(shift_start, shift_end, time_to)
+        if t is not None and t > window_start:
+            window_end = t
+    return window_start, window_end
 
 
 def parse_csv(csv_bytes: bytes) -> pd.DataFrame:
@@ -308,15 +352,18 @@ def build_history_dashboard(
     department: str = "",
     supervisor: str = "",
     machine: str = "",
-    idle_type: str = "",
+    time_from: str = "",
+    time_to: str = "",
 ) -> dict:
     shift_name, shift_start, shift_end = parse_shift_id(shift_id)
+    window_start, window_end = resolve_time_window(shift_start, shift_end, time_from, time_to)
     shift_date = datetime.strptime(shift_id.rsplit("-", 1)[0], "%Y-%m-%d").date()
     df = parse_csv(csv_bytes)
     if not df.empty:
-        df = df[(df["time"] >= shift_start) & (df["time"] < shift_end)].copy()
+        df = df[(df["time"] >= window_start) & (df["time"] < window_end)].copy()
 
-    idle_rows, shift_elapsed_sec = build_idle_history(df, shift_end)
+    idle_rows, shift_elapsed_sec = build_idle_history(df, window_end)
+    window_elapsed_sec = max((pd.Timestamp(window_end) - pd.Timestamp(window_start)).total_seconds(), 1.0)
 
     idle_rows_with_secs = []
     for row in idle_rows:
@@ -326,7 +373,7 @@ def build_history_dashboard(
         row["Unit"] = meta["unit"]
         row["Department"] = meta["department"]
         row["Supervisor"] = meta["supervisor"]
-        row["_idle_seconds"] = _idle_seconds_for_machine(df[df["machine_no"] == machine_no], shift_end)
+        row["_idle_seconds"] = _idle_seconds_for_machine(df[df["machine_no"] == machine_no], window_end)
         idle_rows_with_secs.append(row)
 
     deltas = compute_shot_deltas(df)
@@ -337,7 +384,7 @@ def build_history_dashboard(
             avg_cycles = valid.groupby("machine_no")["cycle_sec"].mean().to_dict()
 
     machines_out = []
-    ts_start = pd.Timestamp(shift_start)
+    ts_start = pd.Timestamp(window_start)
     reg_machines = filter_options(unit_id, shift_name, shift_date)["machines"]
     all_machines = sorted(set(df["machine_no"].unique().tolist()) | set(reg_machines))
 
@@ -356,13 +403,10 @@ def build_history_dashboard(
         if shots == 0:
             efficiency = 0.0
         elif avg_cycle and avg_cycle > 0:
-            expected = shift_elapsed_sec / avg_cycle
+            expected = window_elapsed_sec / avg_cycle
             efficiency = (shots / expected) * 100.0 if expected > 0 else 0.0
 
         idle_row = next((r for r in idle_rows_with_secs if r.get("Machine No") == machine_no), None)
-        if idle_type and idle_row:
-            if idle_row.get(idle_type, "-") in ("-", "—", ""):
-                continue
 
         machines_out.append(
             {
@@ -379,17 +423,21 @@ def build_history_dashboard(
         )
 
     filtered_idle = [r for r in idle_rows_with_secs if r.get("Machine No") in {m["Machine No"] for m in machines_out}]
-    if idle_type:
-        filtered_idle = [r for r in filtered_idle if r.get(idle_type, "-") not in ("-", "—", "")]
 
     eff_vals = []
     loss_vals = []
     total_shots = 0
-    maint_sec = 0
+    machines_high = 0
+    machines_low = 0
     for m in machines_out:
         total_shots += int(m.get("Shots") or 0)
         try:
-            eff_vals.append(float(str(m.get("Efficiency", "")).replace("%", "")))
+            eff = float(str(m.get("Efficiency", "")).replace("%", ""))
+            eff_vals.append(eff)
+            if eff > 80:
+                machines_high += 1
+            if eff < 30:
+                machines_low += 1
         except Exception:
             pass
         ir = next((r for r in filtered_idle if r.get("Machine No") == m["Machine No"]), None)
@@ -428,13 +476,16 @@ def build_history_dashboard(
         "unit_id": unit_id,
         "shift_id": shift_id,
         "shift_name": shift_name,
-        "shift_range": f"{shift_start.strftime('%d %b %H:%M')} – {shift_end.strftime('%d %b %H:%M')}",
+        "shift_range": f"{window_start.strftime('%d %b %H:%M')} – {window_end.strftime('%d %b %H:%M')}",
+        "time_filter_active": bool(time_from or time_to),
         "shift_date": shift_date.isoformat(),
         "summary": {
             "machines": len(machines_out),
             "total_shots": total_shots,
             "overall_efficiency": overall_eff,
             "overall_loss": overall_loss,
+            "machines_above_80": machines_high,
+            "machines_below_30": machines_low,
             "maintenance_time": format_idle_hm(maint_sec),
             "maintenance_minutes": round(maint_sec / 60, 1),
             "row_count": len(df),
@@ -445,12 +496,17 @@ def build_history_dashboard(
         "maintenance": maint_spells,
         "chart_shots": hourly_shot_chart(
             deltas[deltas["machine_no"].isin({m["Machine No"] for m in machines_out})] if not deltas.empty else deltas,
-            shift_start,
-            shift_end,
+            window_start,
+            window_end,
         ),
         "chart_idle": {
             "labels": idle_chart_labels,
-            "datasets": [{"data": idle_chart_values, "backgroundColor": ["#fbbf24", "#f97316", "#ef4444", "#a855f7", "#64748b", "#38bdf8", "#eab308", "#fb7185", "#94a3b8"][: len(idle_chart_labels)]}],
+            "datasets": [{
+                "data": idle_chart_values,
+                "backgroundColor": [IDLE_CHART_COLORS.get(lbl, "#94a3b8") for lbl in idle_chart_labels],
+                "borderColor": "#1a2533",
+                "borderWidth": 2,
+            }],
         },
         "chart_efficiency": eff_chart,
         "filters": filter_options(unit_id, shift_name, shift_date),

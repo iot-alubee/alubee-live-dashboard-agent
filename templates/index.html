@@ -1,13 +1,14 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Machine Live Monitor</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/css/style.css" />
+  <link rel="stylesheet" href="/static/css/style.css?v=live37" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
 </head>
 <body>
   <div class="page">
@@ -23,10 +24,12 @@
     </nav>
 
     <section id="tab-live" class="tab-panel active">
-      <div class="header-row">
+      <div class="header-row live-header-row">
         <div class="header-card header-left">
           <div>
-            <div class="hdr-title">Machine Live Monitor</div>
+            <div class="hdr-title-row">
+              <div class="hdr-title">Machine Live Monitor</div>
+            </div>
             <div class="hdr-mono" id="clock">--</div>
             <div class="hdr-line" id="shift-line">—</div>
             <div class="hdr-line" id="reset-line">Next reset in: —</div>
@@ -38,7 +41,7 @@
           </div>
         </div>
         <div class="header-card header-right">
-          <div class="stat-pair">
+          <div class="stat-pair live-stats">
             <div class="stat-box stat-total">
               <div class="stat-label">Total Machines</div>
               <div class="stat-value" id="cnt-total">0</div>
@@ -59,8 +62,9 @@
         </div>
       </div>
 
-      <div class="section-title">Machines</div>
-      <div class="filter-bar" id="filter-bar">
+      <div class="live-panel">
+        <div class="section-title live-section-title">Machines</div>
+      <div class="filter-bar live-filter-bar" id="filter-bar">
         <label class="filter-item">
           <span>Department</span>
           <select id="filter-department"></select>
@@ -75,8 +79,8 @@
         </label>
         <div class="filter-hint" id="filter-hint">Snapshot every 10s · clock &amp; elapsed are live</div>
       </div>
-      <div class="table-wrap machines">
-        <table class="data-table" id="machines-table">
+      <div class="table-wrap machines live-table-wrap">
+        <table class="data-table live-data-table" id="machines-table">
           <thead>
             <tr>
               <th>Machine No</th>
@@ -100,10 +104,12 @@
           </tbody>
         </table>
       </div>
+      </div>
 
-      <div class="section-title">Idle History</div>
-      <div class="table-wrap idle">
-        <table class="data-table idle-table" id="idle-table">
+      <div class="live-panel">
+        <div class="section-title live-section-title">Idle History</div>
+      <div class="table-wrap idle live-table-wrap">
+        <table class="data-table idle-table live-data-table" id="idle-table">
           <thead>
             <tr id="idle-head">
               <th>Machine No</th>
@@ -114,23 +120,19 @@
           </tbody>
         </table>
       </div>
+      </div>
 
-      <div class="section-title">Shot Trend · Hourly Stacked by Machine</div>
-      <div class="chart-wrap">
+      <div class="live-panel live-chart-panel">
+        <div class="section-title live-section-title">Shot Trend · Hourly Stacked by Machine</div>
+      <div class="chart-wrap live-chart-wrap">
         <canvas id="shot-chart"></canvas>
         <div id="chart-empty" class="empty chart-empty hidden">No shot trend yet.</div>
+      </div>
       </div>
     </section>
 
     <section id="tab-history" class="tab-panel">
       <div class="header-row history-header">
-        <div class="header-card header-left">
-          <div>
-            <div class="hdr-title">Shift History</div>
-            <div class="hdr-line" id="hist-shift-line">Select unit, date &amp; shift</div>
-            <div class="hdr-line" id="hist-meta-line">Archived shifts from cloud storage</div>
-          </div>
-        </div>
         <div class="header-card header-right">
           <div class="stat-pair history-stats">
             <div class="stat-box stat-eff">
@@ -145,9 +147,13 @@
               <div class="stat-label">Total Shots</div>
               <div class="stat-value" id="hist-shots">—</div>
             </div>
-            <div class="stat-box stat-maint">
-              <div class="stat-label">Maintenance</div>
-              <div class="stat-value" id="hist-maint">—</div>
+            <div class="stat-box stat-high">
+              <div class="stat-label">Machines &gt;80%</div>
+              <div class="stat-value" id="hist-high">—</div>
+            </div>
+            <div class="stat-box stat-low">
+              <div class="stat-label">Machines &lt;30%</div>
+              <div class="stat-value" id="hist-low">—</div>
             </div>
           </div>
         </div>
@@ -157,7 +163,7 @@
         <input type="hidden" id="hist-unit" value="unit_i" />
         <label class="filter-item">
           <span>Date</span>
-          <select id="hist-date"></select>
+          <input type="date" id="hist-date" />
         </label>
         <label class="filter-item">
           <span>Shift</span>
@@ -178,12 +184,17 @@
           <span>Machine</span>
           <select id="hist-machine"><option value="">All</option></select>
         </label>
-        <label class="filter-item">
-          <span>Idle Type</span>
-          <select id="hist-idle-type"><option value="">All</option></select>
-        </label>
-        <button type="button" class="btn btn-primary" id="hist-apply">Load</button>
-        <div class="filter-hint" id="hist-hint">Choose filters and click Load</div>
+        <button type="button" class="btn btn-primary hist-filter-btn" id="hist-filter">Filter</button>
+        <button type="button" class="btn btn-secondary hist-filter-btn" id="hist-clear">Clear</button>
+        <button type="button" class="btn btn-secondary hist-filter-btn" id="hist-export" disabled>Export CSV</button>
+        <div class="hist-shift-detail" id="hist-shift-detail">—</div>
+      </div>
+
+      <div id="hist-loading" class="hist-loading hidden" aria-live="polite" aria-busy="false">
+        <div class="hist-loading-box">
+          <div class="hist-spinner" aria-hidden="true"></div>
+          <div class="hist-loading-text">Please wait</div>
+        </div>
       </div>
 
       <div class="history-charts">
@@ -203,62 +214,40 @@
         </div>
       </div>
 
-      <div class="section-title">Shot Trend · Hourly</div>
-      <div class="chart-wrap">
-        <canvas id="hist-shot-chart"></canvas>
-        <div id="hist-shot-empty" class="empty chart-empty hidden">No shot trend</div>
+      <div class="chart-card hist-idle-panel">
+        <div class="hist-panel-head">
+          <div class="section-title">Idle by Machine</div>
+          <div class="hist-table-pager" id="hist-idle-pager">
+            <button type="button" id="hist-idle-prev" class="hist-pager-btn" disabled aria-label="Previous page">‹</button>
+            <span id="hist-idle-page-info">—</span>
+            <button type="button" id="hist-idle-next" class="hist-pager-btn" disabled aria-label="Next page">›</button>
+          </div>
+        </div>
+        <div class="hist-idle-table-wrap">
+          <table class="hist-data-table" id="hist-idle-machine-table">
+            <thead>
+              <tr id="hist-idle-machine-head">
+                <th>Machine</th>
+              </tr>
+            </thead>
+            <tbody id="hist-idle-machine-body">
+              <tr><td colspan="8" class="hist-table-empty">Load a shift to view idle breakdown</td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
-      <div class="section-title">Machines Summary</div>
-      <div class="table-wrap machines">
-        <table class="data-table" id="hist-machines-table">
-          <thead>
-            <tr>
-              <th>Machine No</th>
-              <th>Department</th>
-              <th>Supervisor</th>
-              <th>Shots</th>
-              <th>Avg Cycle</th>
-              <th>Efficiency</th>
-              <th>Total Idle</th>
-              <th>Eff. Loss</th>
-            </tr>
-          </thead>
-          <tbody id="hist-machines-body">
-            <tr><td colspan="8" class="empty">Load a shift to view history</td></tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="section-title">Idle History</div>
-      <div class="table-wrap idle">
-        <table class="data-table idle-table" id="hist-idle-table">
-          <thead><tr id="hist-idle-head"><th>Machine No</th></tr></thead>
-          <tbody id="hist-idle-body">
-            <tr><td class="empty">No idle history</td></tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="section-title">Maintenance History</div>
-      <div class="table-wrap">
-        <table class="data-table" id="hist-maint-table">
-          <thead>
-            <tr>
-              <th>Machine No</th>
-              <th>From</th>
-              <th>To</th>
-              <th>Duration</th>
-            </tr>
-          </thead>
-          <tbody id="hist-maint-body">
-            <tr><td colspan="4" class="empty">No maintenance events</td></tr>
-          </tbody>
-        </table>
+      <div class="chart-card hist-shot-panel">
+        <div class="section-title">Shot Trend · Hourly</div>
+        <div class="chart-wrap chart-shot">
+          <canvas id="hist-shot-chart"></canvas>
+          <div id="hist-shot-empty" class="empty chart-empty hidden">No shot trend</div>
+        </div>
       </div>
     </section>
   </div>
-  <script src="/static/js/cloud_dashboard.js"></script>
-  <script src="/static/js/history_dashboard.js"></script>
+  <script src="/static/js/theme.js?v=live2"></script>
+  <script src="/static/js/cloud_dashboard.js?v=live9"></script>
+  <script src="/static/js/history_dashboard.js?v=live29"></script>
 </body>
 </html>
