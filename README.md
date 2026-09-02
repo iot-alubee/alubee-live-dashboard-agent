@@ -30,7 +30,7 @@ gcloud run deploy alubee-live-monitor \
   --max-instances 3 \
   --memory 512Mi \
   --cpu 1 \
-  --set-env-vars "INGEST_API_KEY=iot_Gm4rZk9zkoaseaxB2W4s9G7rfvRidGQv0llM8R0W0Gg,USE_FIRESTORE=1,FIRESTORE_DATABASE=(default)"
+  --set-env-vars "INGEST_API_KEY=YOUR_KEY,USE_FIRESTORE=1,FIRESTORE_DATABASE=(default),GCS_ARCHIVE_BUCKET=live-monitor-agent.firebasestorage.app"
 ```
 
 **Live URL:** https://alubee-live-monitor-841494023550.asia-south1.run.app
@@ -50,8 +50,10 @@ Agent `config.json` `cloud_url` must match the Live URL above.
 | Method | Path | Who |
 |--------|------|-----|
 | POST | `/ingest` | PC agents (`X-API-Key`) |
+| POST | `/archive` | Plant PC shift archiver (`X-API-Key`, multipart CSV) |
+| GET | `/api/history/shifts?unit=unit_i&from=&to=` | List archived shifts |
 | GET | `/live?unit=unit_i` | Browsers |
-| GET | `/health` | Probe |
+| GET | `/health` | Probe (shows `gcs`, `gcs_bucket`) |
 | GET | `/` | Simple 2s live page |
 
 Keep **min-instances = 0** for low cost.

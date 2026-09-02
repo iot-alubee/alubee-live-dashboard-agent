@@ -16,18 +16,28 @@ from datetime import datetime, timezone
 
 from flask import Flask, jsonify, request, render_template
 
+from archive_service import (
+    ARCHIVE_COLLECTION,
+    archive_shift_csv,
+    download_shift_csv,
+    list_archived_shifts,
+    should_archive_shift,
+)
+
 app = Flask(__name__, static_folder="static", template_folder="templates")
 
 INGEST_API_KEY = os.environ.get("INGEST_API_KEY", "").strip()
 USE_FIRESTORE = os.environ.get("USE_FIRESTORE", "1").strip() not in ("0", "false", "no")
-# "(default)" or a named DB id — must match Firestore console
 FIRESTORE_DATABASE = os.environ.get("FIRESTORE_DATABASE", "(default)").strip() or "(default)"
+GCS_ARCHIVE_BUCKET = os.environ.get("GCS_ARCHIVE_BUCKET", "").strip()
 
 # In-memory fallback: { unit_id: payload }
 _MEMORY: dict = {}
 _db_error = None
+_storage_error = None
 
 _db = None
+_storage = None
 if USE_FIRESTORE:
     try:
         from google.cloud import firestore
@@ -38,6 +48,17 @@ if USE_FIRESTORE:
         _db_error = str(e)
         print(f"Firestore unavailable ({e}) — using memory store")
         _db = None
+
+if GCS_ARCHIVE_BUCKET:
+    try:
+        from google.cloud import storage
+
+        _storage = storage.Client()
+        print(f"GCS client OK bucket={GCS_ARCHIVE_BUCKET}")
+    except Exception as e:
+        _storage_error = str(e)
+        print(f"GCS unavailable ({e})")
+        _storage = None
 
 
 def _now_iso() -> str:
@@ -78,6 +99,10 @@ def health():
             "firestore": _db is not None,
             "firestore_database": FIRESTORE_DATABASE,
             "firestore_error": _db_error,
+            "gcs_bucket": GCS_ARCHIVE_BUCKET or None,
+            "gcs": _storage is not None and bool(GCS_ARCHIVE_BUCKET),
+            "gcs_error": _storage_error,
+            "archive_collection": ARCHIVE_COLLECTION,
             "time": _now_iso(),
         }
     )
@@ -126,6 +151,73 @@ def ingest():
             }
         ), 500
     return jsonify({"ok": True, "unit_id": unit_id, "machines": len(machines)})
+
+
+@app.post("/archive")
+def archive():
+    """Receive shift CSV from plant PC; store in GCS + Firestore metadata."""
+    if not _check_ingest_key():
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+
+    unit_id = str(request.form.get("unit_id") or request.args.get("unit_id") or "").strip().lower()
+    shift_id = str(request.form.get("shift_id") or request.args.get("shift_id") or "").strip()
+    pc_name = str(request.form.get("pc_name") or request.args.get("pc_name") or "").strip()
+    try:
+        row_count = int(request.form.get("row_count") or request.args.get("row_count") or 0)
+    except Exception:
+        row_count = 0
+
+    csv_bytes = b""
+    if "file" in request.files:
+        csv_bytes = request.files["file"].read()
+    elif request.data:
+        csv_bytes = request.data
+
+    if not unit_id or not shift_id:
+        return jsonify({"ok": False, "error": "unit_id and shift_id required"}), 400
+    if unit_id not in ("unit_i", "unit_ii"):
+        return jsonify({"ok": False, "error": "unit_id must be unit_i or unit_ii"}), 400
+    if not csv_bytes:
+        return jsonify({"ok": False, "error": "csv file or body required"}), 400
+
+    if not should_archive_shift(shift_id):
+        return jsonify(
+            {
+                "ok": True,
+                "skipped": True,
+                "reason": "shift date not after 2026-08-31",
+                "shift_id": shift_id,
+            }
+        )
+
+    try:
+        result = archive_shift_csv(
+            db=_db,
+            storage_client=_storage,
+            unit_id=unit_id,
+            shift_id=shift_id,
+            csv_bytes=csv_bytes,
+            row_count=row_count,
+            pc_name=pc_name,
+        )
+        return jsonify(result)
+    except Exception as e:
+        print(f"ARCHIVE error: {e}")
+        return jsonify({"ok": False, "error": "archive_failed", "detail": str(e)}), 500
+
+
+@app.get("/api/history/shifts")
+def history_shifts():
+    unit_id = str(request.args.get("unit") or "unit_i").strip().lower()
+    if unit_id not in ("unit_i", "unit_ii"):
+        return jsonify({"ok": False, "error": "unit must be unit_i or unit_ii"}), 400
+    date_from = str(request.args.get("from") or "").strip() or None
+    date_to = str(request.args.get("to") or "").strip() or None
+    try:
+        rows = list_archived_shifts(_db, unit_id, date_from=date_from, date_to=date_to)
+        return jsonify({"ok": True, "unit_id": unit_id, "shifts": rows, "count": len(rows)})
+    except Exception as e:
+        return jsonify({"ok": False, "error": "history_list_failed", "detail": str(e)}), 500
 
 
 @app.get("/live")
