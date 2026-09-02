@@ -261,19 +261,58 @@ def compute_shot_deltas(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def shots_produced(df_all: pd.DataFrame, machine: str, shift_start: pd.Timestamp) -> int:
+def shots_produced(
+    df_all: pd.DataFrame,
+    machine: str,
+    shift_start: pd.Timestamp,
+    count_from=None,
+) -> int:
     m = df_all[(df_all["machine_no"] == machine) & (df_all["state"] == "production")].sort_values("time")
-    m = m[m["time"] >= shift_start]
     if m.empty:
         return 0
+    start = count_from if count_from is not None else shift_start
+    before = m[m["time"] < start]
+    during = m[m["time"] >= start]
+    if during.empty:
+        return 0
+    prev = int(before.iloc[-1]["shot"]) if not before.empty else None
     total = 0
-    prev = None
-    for _, row in m.iterrows():
-        s = int(row["shot"])
-        if prev is not None and s > prev:
-            total += s - prev
-        prev = s
-    return total
+    for cur in during["shot"].astype(int):
+        if prev is not None and cur > prev:
+            total += cur - prev
+        prev = int(cur)
+    return int(total)
+
+
+def confirmed_reset_info(g: pd.DataFrame) -> tuple[str, object]:
+    """Return (display, count_from_time). Display is HH:MM:SS, Not cleared, or —."""
+    if g is None or g.empty:
+        return "—", None
+
+    sr = g[g["state"] == "shift_reset"].sort_values("time")
+    if sr.empty:
+        return "—", None
+
+    prod = g[g["state"] == "production"].sort_values("time")
+    for i in range(len(sr) - 1, -1, -1):
+        row = sr.iloc[i]
+        t = pd.Timestamp(row["time"])
+        after = prod[prod["time"] > t]
+        if after.empty:
+            return t.strftime("%H:%M:%S"), t
+
+        first = after.iloc[:8]
+        shots = first["shot"].astype(int)
+        before = prod[prod["time"] < t]
+        pre = int(before.iloc[-1]["shot"]) if not before.empty else None
+        post0 = int(shots.iloc[0])
+        if shots.min() <= 2 or post0 <= 5:
+            return t.strftime("%H:%M:%S"), t
+        if pre is not None and post0 < pre and post0 <= max(5, int(pre * 0.05)):
+            return t.strftime("%H:%M:%S"), t
+
+    t = pd.Timestamp(sr.iloc[-1]["time"])
+    return "Not cleared", None
 
 
 def maintenance_spells(df: pd.DataFrame) -> list[dict]:
@@ -385,6 +424,7 @@ def build_history_dashboard(
 
     machines_out = []
     ts_start = pd.Timestamp(window_start)
+    window_hours = window_elapsed_sec / 3600.0
     reg_machines = filter_options(unit_id, shift_name, shift_date)["machines"]
     all_machines = sorted(set(df["machine_no"].unique().tolist()) | set(reg_machines))
 
@@ -397,8 +437,12 @@ def build_history_dashboard(
         if machine and machine_no != machine:
             continue
 
-        shots = shots_produced(df, machine_no, ts_start)
+        g = df[df["machine_no"] == machine_no].sort_values("time")
+        reset_time, reset_from = confirmed_reset_info(g)
+        reconnects = int((g["state"] == "reconnection").sum()) if not g.empty else 0
+        shots = shots_produced(df, machine_no, ts_start, count_from=reset_from)
         avg_cycle = avg_cycles.get(machine_no)
+        qty_hour = shots / window_hours if window_hours > 0 else None
         efficiency = None
         if shots == 0:
             efficiency = 0.0
@@ -415,6 +459,9 @@ def build_history_dashboard(
                 "Supervisor": meta["supervisor"],
                 "Shots": shots,
                 "Avg Cycle Time": f"{avg_cycle:.1f}s" if avg_cycle else "—",
+                "Qty/Hour": f"{round(qty_hour):.0f}" if qty_hour is not None else "—",
+                "Reconnections": reconnects,
+                "Reset Time": reset_time,
                 "Efficiency": f"{efficiency:.1f}%" if efficiency is not None else "—",
                 "EfficiencyDir": efficiency_band(efficiency),
                 "Efficiency Loss": idle_row.get("Efficiency Loss", "—") if idle_row else "—",

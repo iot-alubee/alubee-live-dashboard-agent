@@ -10,6 +10,23 @@ let idleMachineRows = [];
 let idleMachineCols = [];
 let idleMachinePage = 0;
 const IDLE_MACHINE_PAGE_SIZE = 6;
+let prodMachineRows = [];
+let prodMachinePage = 0;
+const PROD_MACHINE_PAGE_SIZE = 6;
+const PROD_COLS = [
+  "Machine No",
+  "Shots",
+  "Avg Cycle Time",
+  "Qty/Hour",
+  "Efficiency",
+];
+
+function histEffClass(dir) {
+  if (dir === "high" || dir === "up") return "eff-high";
+  if (dir === "mid" || dir === "same") return "eff-mid";
+  if (dir === "low" || dir === "down") return "eff-low";
+  return "hist-val";
+}
 
 function histChartColors() {
   return typeof window.getDashboardChartColors === "function"
@@ -25,17 +42,13 @@ function histChartColors() {
 
 function idleMachineColumns(idleCols, rows) {
   const skip = new Set(["Efficiency Loss"]);
-  const cols = (idleCols || []).filter((c) => !skip.has(c));
-  const withData = cols.filter((col) =>
+  const cols = (idleCols || []).filter((c) => !skip.has(c) && c !== "Machine No");
+  return cols.filter((col) =>
     (rows || []).some((r) => {
       const v = String(r[col] ?? "").trim();
       return v && v !== "-" && v !== "—";
     })
   );
-  if (cols.includes("Total Idle") && !withData.includes("Total Idle")) {
-    withData.push("Total Idle");
-  }
-  return withData.length ? withData : cols;
 }
 
 const histEls = {
@@ -148,6 +161,9 @@ function exportHistCsv() {
     "Supervisor",
     "Shots",
     "Avg Cycle Time",
+    "Qty/Hour",
+    "Reconnections",
+    "Reset Time",
     "Efficiency",
     ...idleCols,
   ];
@@ -159,14 +175,17 @@ function exportHistCsv() {
       data.shift_id || "",
       data.shift_name || "",
       data.shift_range || "",
-      idle.Unit || data.unit_id || "",
+      m.Unit || data.unit_id || "",
       m["Machine No"] ?? "",
-      m.Department ?? idle.Department ?? "",
-      m.Supervisor ?? idle.Supervisor ?? "",
+      m.Department ?? "",
+      m.Supervisor ?? "",
       m.Shots ?? "",
       m["Avg Cycle Time"] ?? "",
+      m["Qty/Hour"] ?? "",
+      m.Reconnections ?? "",
+      m["Reset Time"] ?? "",
       m.Efficiency ?? "",
-      ...idleCols.map((col) => idle[col] ?? m[col] ?? ""),
+      ...idleCols.map((c) => idle[c] ?? ""),
     ];
     lines.push(row.map(csvEscape).join(","));
   }
@@ -241,6 +260,38 @@ function fillHistSelect(el, values, allLabel = "All") {
   return "";
 }
 
+function fitHistSelectWidth(el) {
+  if (!el || el.tagName !== "SELECT") return 0;
+  const probe = document.createElement("span");
+  const cs = getComputedStyle(el);
+  probe.style.cssText = [
+    "position:absolute",
+    "left:-9999px",
+    "top:0",
+    "visibility:hidden",
+    "white-space:nowrap",
+    `font:${cs.font}`,
+    `letter-spacing:${cs.letterSpacing}`,
+  ].join(";");
+  document.body.appendChild(probe);
+  let max = 0;
+  for (const opt of el.options) {
+    probe.textContent = opt.textContent || "";
+    max = Math.max(max, probe.offsetWidth);
+  }
+  document.body.removeChild(probe);
+  return Math.max(Math.ceil(max + 36), 72);
+}
+
+function fitHistFilterWidths() {
+  const els = [histEls.shift, histEls.department, histEls.supervisor, histEls.machine].filter(Boolean);
+  let shared = 0;
+  for (const el of els) shared = Math.max(shared, fitHistSelectWidth(el));
+  // Cap so Shift stays in line with Dept/Supervisor/Machine (not date-wide)
+  shared = Math.min(Math.max(shared, 88), 132);
+  for (const el of els) el.style.width = `${shared}px`;
+}
+
 function cascadeHistSupervisors() {
   const dept = histEls.department?.value || "";
   const byDept = histFilterMeta?.supervisors_by_department || {};
@@ -264,6 +315,7 @@ function refreshHistFilterDropdowns() {
   fillHistSelect(histEls.department, histFilterMeta.departments);
   fillHistSelect(histEls.supervisor, cascadeHistSupervisors());
   fillHistSelect(histEls.machine, cascadeHistMachines());
+  fitHistFilterWidths();
 }
 
 async function loadHistFilterMeta() {
@@ -410,7 +462,25 @@ function renderIdleByMachinePage() {
   const nextBtn = document.getElementById("hist-idle-next");
   if (!head || !body || !table) return;
 
-  const cols = ["Machine No", ...idleMachineCols];
+  const total = idleMachineRows.length;
+  const totalPages = Math.max(1, Math.ceil(total / IDLE_MACHINE_PAGE_SIZE));
+  if (idleMachinePage >= totalPages) idleMachinePage = totalPages - 1;
+  if (idleMachinePage < 0) idleMachinePage = 0;
+
+  if (!total) {
+    head.innerHTML = "<th>Machine No</th>";
+    body.innerHTML = `<tr><td colspan="1" class="hist-table-empty">No idle data for selected filters</td></tr>`;
+    if (pageInfo) pageInfo.textContent = "—";
+    if (prevBtn) prevBtn.disabled = true;
+    if (nextBtn) nextBtn.disabled = true;
+    return;
+  }
+
+  const start = idleMachinePage * IDLE_MACHINE_PAGE_SIZE;
+  const pageRows = idleMachineRows.slice(start, start + IDLE_MACHINE_PAGE_SIZE);
+  // Hide columns that are all "-" on this page only (columns can differ page to page)
+  const pageCols = idleMachineColumns(idleMachineCols, pageRows);
+  const cols = ["Machine No", ...pageCols];
 
   let colgroup = table.querySelector("colgroup");
   if (!colgroup) {
@@ -426,22 +496,6 @@ function renderIdleByMachinePage() {
     .join("");
 
   head.innerHTML = cols.map((c) => `<th>${esc(c)}</th>`).join("");
-
-  const total = idleMachineRows.length;
-  const totalPages = Math.max(1, Math.ceil(total / IDLE_MACHINE_PAGE_SIZE));
-  if (idleMachinePage >= totalPages) idleMachinePage = totalPages - 1;
-  if (idleMachinePage < 0) idleMachinePage = 0;
-
-  if (!total) {
-    body.innerHTML = `<tr><td colspan="${cols.length}" class="hist-table-empty">No idle data for selected filters</td></tr>`;
-    if (pageInfo) pageInfo.textContent = "—";
-    if (prevBtn) prevBtn.disabled = true;
-    if (nextBtn) nextBtn.disabled = true;
-    return;
-  }
-
-  const start = idleMachinePage * IDLE_MACHINE_PAGE_SIZE;
-  const pageRows = idleMachineRows.slice(start, start + IDLE_MACHINE_PAGE_SIZE);
 
   body.innerHTML = pageRows
     .map((r) => {
@@ -469,9 +523,68 @@ function renderIdleByMachinePage() {
 
 function renderIdleByMachine(idleRows, idleCols) {
   idleMachineRows = idleRows || [];
-  idleMachineCols = idleMachineColumns(idleCols, idleMachineRows);
+  const skip = new Set(["Efficiency Loss", "Machine No"]);
+  idleMachineCols = (idleCols || []).filter((c) => !skip.has(c));
   idleMachinePage = 0;
   renderIdleByMachinePage();
+}
+
+function renderProductionByMachinePage() {
+  const head = document.getElementById("hist-prod-machine-head");
+  const body = document.getElementById("hist-prod-machine-body");
+  const pageInfo = document.getElementById("hist-prod-page-info");
+  const prevBtn = document.getElementById("hist-prod-prev");
+  const nextBtn = document.getElementById("hist-prod-next");
+  if (!head || !body) return;
+
+  head.innerHTML = PROD_COLS.map((c) => `<th>${esc(c)}</th>`).join("");
+
+  const total = prodMachineRows.length;
+  const totalPages = Math.max(1, Math.ceil(total / PROD_MACHINE_PAGE_SIZE));
+  if (prodMachinePage >= totalPages) prodMachinePage = totalPages - 1;
+  if (prodMachinePage < 0) prodMachinePage = 0;
+
+  if (!total) {
+    body.innerHTML = `<tr><td colspan="${PROD_COLS.length}" class="hist-table-empty">No production data for selected filters</td></tr>`;
+    if (pageInfo) pageInfo.textContent = "—";
+    if (prevBtn) prevBtn.disabled = true;
+    if (nextBtn) nextBtn.disabled = true;
+    return;
+  }
+
+  const start = prodMachinePage * PROD_MACHINE_PAGE_SIZE;
+  const pageRows = prodMachineRows.slice(start, start + PROD_MACHINE_PAGE_SIZE);
+
+  body.innerHTML = pageRows
+    .map((r) => {
+      const cells = PROD_COLS.map((c) => {
+        if (c === "Machine No") {
+          return `<td class="machine-no">${esc(r["Machine No"] ?? "—")}</td>`;
+        }
+        const v = r[c];
+        const empty = v == null || v === "" || v === "-" || v === "—";
+        let cls = empty ? "hist-empty" : "hist-val";
+        if (!empty && c === "Efficiency") cls = histEffClass(r.EfficiencyDir);
+        return `<td><span class="${cls}">${esc(empty ? "—" : v)}</span></td>`;
+      }).join("");
+      return `<tr>${cells}</tr>`;
+    })
+    .join("");
+
+  if (pageInfo) pageInfo.textContent = `${prodMachinePage + 1} / ${totalPages}`;
+  if (prevBtn) prevBtn.disabled = prodMachinePage <= 0;
+  if (nextBtn) nextBtn.disabled = prodMachinePage >= totalPages - 1;
+}
+
+function renderProductionByMachine(machines) {
+  prodMachineRows = (machines || []).slice().sort((a, b) =>
+    String(a["Machine No"] || "").localeCompare(String(b["Machine No"] || ""), undefined, {
+      numeric: true,
+      sensitivity: "base",
+    })
+  );
+  prodMachinePage = 0;
+  renderProductionByMachinePage();
 }
 
 function renderDashboard(data) {
@@ -566,6 +679,7 @@ function renderDashboard(data) {
     },
   });
 
+  renderProductionByMachine(data.machines || []);
   renderIdleByMachine(data.idle_history || [], data.idle_columns || []);
 
   const shotChart = data.chart_shots || {};
@@ -737,6 +851,7 @@ async function applyLocalFilters() {
 
 async function initHistoryDashboard() {
   applyDefaultPreviousShift();
+  fitHistFilterWidths();
   await loadShiftList();
   await loadHistFilterMeta();
   await applyLocalFilters();
@@ -806,6 +921,20 @@ document.getElementById("hist-idle-next")?.addEventListener("click", () => {
   if (idleMachinePage < totalPages - 1) {
     idleMachinePage += 1;
     renderIdleByMachinePage();
+  }
+});
+
+document.getElementById("hist-prod-prev")?.addEventListener("click", () => {
+  if (prodMachinePage > 0) {
+    prodMachinePage -= 1;
+    renderProductionByMachinePage();
+  }
+});
+document.getElementById("hist-prod-next")?.addEventListener("click", () => {
+  const totalPages = Math.max(1, Math.ceil(prodMachineRows.length / PROD_MACHINE_PAGE_SIZE));
+  if (prodMachinePage < totalPages - 1) {
+    prodMachinePage += 1;
+    renderProductionByMachinePage();
   }
 });
 
