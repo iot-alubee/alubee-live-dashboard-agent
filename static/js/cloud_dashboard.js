@@ -433,6 +433,7 @@ function applyAndRender() {
 }
 
 async function refreshSnapshot() {
+  if (!document.getElementById("tab-live")?.classList.contains("active")) return;
   if (refreshInFlight) return;
   refreshInFlight = true;
   try {

@@ -1,0 +1,18 @@
+{
+  "swap_anchor_monday": "2026-07-27",
+  "comment": "Unit I only. Shift I / Shift II incharges swap each Monday from swap_anchor_monday.",
+  "machines": [
+    {"machine_no": "125-01", "ip": "192.168.1.20", "department": "PDC", "unit": "Unit I", "incharge_shift_i": "Murali", "incharge_shift_ii": "Vijay"},
+    {"machine_no": "125-02", "ip": "192.168.1.21", "department": "PDC", "unit": "Unit I", "incharge_shift_i": "Murali", "incharge_shift_ii": "Vijay"},
+    {"machine_no": "125-03", "ip": "192.168.1.22", "department": "PDC", "unit": "Unit I", "incharge_shift_i": "Murali", "incharge_shift_ii": "Vijay"},
+    {"machine_no": "125-04", "ip": "192.168.1.23", "department": "PDC", "unit": "Unit I", "incharge_shift_i": "Murali", "incharge_shift_ii": "Vijay"},
+    {"machine_no": "125-05", "ip": "192.168.1.24", "department": "PDC", "unit": "Unit I", "incharge_shift_i": "Murali", "incharge_shift_ii": "Vijay"},
+    {"machine_no": "125-06", "ip": "192.168.1.25", "department": "PDC", "unit": "Unit I", "incharge_shift_i": "Murali", "incharge_shift_ii": "Vijay"},
+    {"machine_no": "125-07", "ip": "192.168.1.26", "department": "PDC", "unit": "Unit I", "incharge_shift_i": "Sivaprakash", "incharge_shift_ii": "Singaravelu"},
+    {"machine_no": "250-01", "ip": "192.168.1.27", "department": "PDC", "unit": "Unit I", "incharge_shift_i": "Sivaprakash", "incharge_shift_ii": "Singaravelu"},
+    {"machine_no": "350-01", "ip": "192.168.1.28", "department": "PDC", "unit": "Unit I", "incharge_shift_i": "Sivaprakash", "incharge_shift_ii": "Singaravelu"},
+    {"machine_no": "350-02", "ip": "192.168.1.29", "department": "PDC", "unit": "Unit I", "incharge_shift_i": "Sivaprakash", "incharge_shift_ii": "Singaravelu"},
+    {"machine_no": "350-03", "ip": "192.168.1.30", "department": "PDC", "unit": "Unit I", "incharge_shift_i": "Sivaprakash", "incharge_shift_ii": "Singaravelu"},
+    {"machine_no": "350-04", "ip": "192.168.1.31", "department": "PDC", "unit": "Unit I", "incharge_shift_i": "Sivaprakash", "incharge_shift_ii": "Singaravelu"}
+  ]
+}

@@ -11,13 +11,17 @@
 </head>
 <body>
   <div class="page">
-    <!-- Top-level unit filter (replaces Firmware tab on cloud) -->
-    <nav class="tabs" aria-label="Unit">
+    <nav class="tabs main-tabs" aria-label="Main">
+      <button type="button" class="tab-btn active" data-tab="live">Live</button>
+      <button type="button" class="tab-btn" data-tab="history">History</button>
+    </nav>
+
+    <section id="tab-live" class="tab-panel active">
+    <nav class="tabs unit-tabs" aria-label="Unit">
       <button type="button" class="tab-btn active" data-unit="unit_i">Unit I</button>
       <button type="button" class="tab-btn" data-unit="unit_ii">Unit II</button>
     </nav>
 
-    <section id="tab-live" class="tab-panel active">
       <div class="header-row">
         <div class="header-card header-left">
           <div>
@@ -116,7 +120,150 @@
         <div id="chart-empty" class="empty chart-empty hidden">No shot trend yet.</div>
       </div>
     </section>
+
+    <section id="tab-history" class="tab-panel">
+      <div class="header-row history-header">
+        <div class="header-card header-left">
+          <div>
+            <div class="hdr-title">Shift History</div>
+            <div class="hdr-line" id="hist-shift-line">Select unit, date &amp; shift</div>
+            <div class="hdr-line" id="hist-meta-line">Archived shifts from cloud storage</div>
+          </div>
+        </div>
+        <div class="header-card header-right">
+          <div class="stat-pair history-stats">
+            <div class="stat-box stat-eff">
+              <div class="stat-label">Overall Efficiency</div>
+              <div class="stat-value" id="hist-eff">—</div>
+            </div>
+            <div class="stat-box stat-loss">
+              <div class="stat-label">Efficiency Loss</div>
+              <div class="stat-value" id="hist-loss">—</div>
+            </div>
+            <div class="stat-box stat-shots">
+              <div class="stat-label">Total Shots</div>
+              <div class="stat-value" id="hist-shots">—</div>
+            </div>
+            <div class="stat-box stat-maint">
+              <div class="stat-label">Maintenance</div>
+              <div class="stat-value" id="hist-maint">—</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="filter-bar history-filters">
+        <label class="filter-item">
+          <span>Unit</span>
+          <select id="hist-unit">
+            <option value="unit_i">Unit I</option>
+            <option value="unit_ii">Unit II</option>
+          </select>
+        </label>
+        <label class="filter-item">
+          <span>Date</span>
+          <select id="hist-date"></select>
+        </label>
+        <label class="filter-item">
+          <span>Shift</span>
+          <select id="hist-shift">
+            <option value="I">Shift I (08:00–20:00)</option>
+            <option value="II">Shift II (20:00–08:00)</option>
+          </select>
+        </label>
+        <label class="filter-item">
+          <span>Department</span>
+          <select id="hist-department"><option value="">All</option></select>
+        </label>
+        <label class="filter-item">
+          <span>Supervisor</span>
+          <select id="hist-supervisor"><option value="">All</option></select>
+        </label>
+        <label class="filter-item">
+          <span>Machine</span>
+          <select id="hist-machine"><option value="">All</option></select>
+        </label>
+        <label class="filter-item">
+          <span>Idle Type</span>
+          <select id="hist-idle-type"><option value="">All</option></select>
+        </label>
+        <button type="button" class="btn btn-primary" id="hist-apply">Load</button>
+        <div class="filter-hint" id="hist-hint">Choose filters and click Load</div>
+      </div>
+
+      <div class="history-charts">
+        <div class="chart-card">
+          <div class="section-title">Idle Breakdown (minutes)</div>
+          <div class="chart-wrap chart-sm">
+            <canvas id="hist-idle-chart"></canvas>
+            <div id="hist-idle-empty" class="empty chart-empty hidden">No idle data</div>
+          </div>
+        </div>
+        <div class="chart-card">
+          <div class="section-title">Efficiency by Machine</div>
+          <div class="chart-wrap chart-sm">
+            <canvas id="hist-eff-chart"></canvas>
+            <div id="hist-eff-empty" class="empty chart-empty hidden">No efficiency data</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-title">Shot Trend · Hourly</div>
+      <div class="chart-wrap">
+        <canvas id="hist-shot-chart"></canvas>
+        <div id="hist-shot-empty" class="empty chart-empty hidden">No shot trend</div>
+      </div>
+
+      <div class="section-title">Machines Summary</div>
+      <div class="table-wrap machines">
+        <table class="data-table" id="hist-machines-table">
+          <thead>
+            <tr>
+              <th>Machine No</th>
+              <th>Department</th>
+              <th>Supervisor</th>
+              <th>Shots</th>
+              <th>Avg Cycle</th>
+              <th>Efficiency</th>
+              <th>Total Idle</th>
+              <th>Eff. Loss</th>
+            </tr>
+          </thead>
+          <tbody id="hist-machines-body">
+            <tr><td colspan="8" class="empty">Load a shift to view history</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="section-title">Idle History</div>
+      <div class="table-wrap idle">
+        <table class="data-table idle-table" id="hist-idle-table">
+          <thead><tr id="hist-idle-head"><th>Machine No</th></tr></thead>
+          <tbody id="hist-idle-body">
+            <tr><td class="empty">No idle history</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="section-title">Maintenance History</div>
+      <div class="table-wrap">
+        <table class="data-table" id="hist-maint-table">
+          <thead>
+            <tr>
+              <th>Machine No</th>
+              <th>From</th>
+              <th>To</th>
+              <th>Duration</th>
+            </tr>
+          </thead>
+          <tbody id="hist-maint-body">
+            <tr><td colspan="4" class="empty">No maintenance events</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
   </div>
   <script src="/static/js/cloud_dashboard.js"></script>
+  <script src="/static/js/history_dashboard.js"></script>
 </body>
 </html>

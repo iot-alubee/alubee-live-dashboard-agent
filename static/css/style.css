@@ -524,3 +524,37 @@ td.machine-no { font-weight: 700; color: #1b4965; }
 }
 .tick-empty { color: #94a3b8; }
 
+/* ---- History tab ---- */
+.main-tabs { margin-bottom: 0.15rem; }
+.unit-tabs {
+  background: rgba(8, 18, 30, 0.55);
+  border-color: rgba(148, 183, 214, 0.25);
+}
+.history-stats .stat-eff { background: #d9f2e3; color: #146c43; }
+.history-stats .stat-loss { background: #fde2e4; color: #a4133c; }
+.history-stats .stat-shots { background: #cfe2ff; color: #084298; }
+.history-stats .stat-maint { background: #fff3cd; color: #856404; }
+.history-filters .btn { align-self: flex-end; margin-bottom: 2px; }
+.history-charts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: clamp(0.6rem, 1.2vw, 1rem);
+}
+.chart-card {
+  background: rgba(13, 27, 42, 0.45);
+  border: 1px solid rgba(148, 183, 214, 0.25);
+  border-radius: 14px;
+  padding: 0.5rem 0.75rem 0.75rem;
+}
+.chart-wrap.chart-sm {
+  height: 220px;
+  min-height: 180px;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0.25rem 0;
+}
+@media (max-width: 900px) {
+  .history-charts { grid-template-columns: 1fr; }
+}
+

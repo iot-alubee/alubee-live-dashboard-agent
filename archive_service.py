@@ -105,6 +105,16 @@ def archive_shift_csv(
     }
 
 
+def get_shift_archive(db, unit_id: str, shift_id: str) -> dict | None:
+    if db is None:
+        return None
+    doc_id = f"{unit_id}_{shift_id}"
+    snap = db.collection(ARCHIVE_COLLECTION).document(doc_id).get()
+    if snap.exists:
+        return snap.to_dict()
+    return None
+
+
 def list_archived_shifts(db, unit_id: str, date_from: str | None = None, date_to: str | None = None) -> list[dict]:
     if db is None:
         return []

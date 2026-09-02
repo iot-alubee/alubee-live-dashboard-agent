@@ -1,0 +1,18 @@
+{
+  "swap_anchor_monday": "2026-07-27",
+  "comment": "Unit II on 192.168.10.x — PC 192.168.10.10. Shift incharges swap each Monday from swap_anchor_monday.",
+  "machines": [
+    {"machine_no": "125-01", "ip": "192.168.10.32", "department": "PDC", "unit": "Unit II", "incharge_shift_i": "Sivan", "incharge_shift_ii": "Pragasam"},
+    {"machine_no": "125-02", "ip": "192.168.10.33", "department": "PDC", "unit": "Unit II", "incharge_shift_i": "Sivan", "incharge_shift_ii": "Pragasam"},
+    {"machine_no": "250-01", "ip": "192.168.10.34", "department": "PDC", "unit": "Unit II", "incharge_shift_i": "Sivan", "incharge_shift_ii": "Pragasam"},
+    {"machine_no": "250-02", "ip": "192.168.10.35", "department": "PDC", "unit": "Unit II", "incharge_shift_i": "Sivan", "incharge_shift_ii": "Pragasam"},
+    {"machine_no": "350-01", "ip": "192.168.10.36", "department": "PDC", "unit": "Unit II", "incharge_shift_i": "Sivan", "incharge_shift_ii": "Pragasam"},
+    {"machine_no": "350-02", "ip": "192.168.10.37", "department": "PDC", "unit": "Unit II", "incharge_shift_i": "Sivan", "incharge_shift_ii": "Pragasam"},
+    {"machine_no": "350-03", "ip": "192.168.10.38", "department": "PDC", "unit": "Unit II", "incharge_shift_i": "Arun", "incharge_shift_ii": "Rajiv"},
+    {"machine_no": "350-04", "ip": "192.168.10.39", "department": "PDC", "unit": "Unit II", "incharge_shift_i": "Arun", "incharge_shift_ii": "Rajiv"},
+    {"machine_no": "500-01", "ip": "192.168.10.40", "department": "PDC", "unit": "Unit II", "incharge_shift_i": "Arun", "incharge_shift_ii": "Rajiv"},
+    {"machine_no": "650-01", "ip": "192.168.10.41", "department": "PDC", "unit": "Unit II", "incharge_shift_i": "Arun", "incharge_shift_ii": "Rajiv"},
+    {"machine_no": "650-02", "ip": "192.168.10.42", "department": "PDC", "unit": "Unit II", "incharge_shift_i": "Arun", "incharge_shift_ii": "Rajiv"},
+    {"machine_no": "800-01", "ip": "192.168.10.43", "department": "PDC", "unit": "Unit II", "incharge_shift_i": "Arun", "incharge_shift_ii": "Rajiv"}
+  ]
+}

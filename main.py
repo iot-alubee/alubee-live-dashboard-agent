@@ -20,9 +20,11 @@ from archive_service import (
     ARCHIVE_COLLECTION,
     archive_shift_csv,
     download_shift_csv,
+    get_shift_archive,
     list_archived_shifts,
     should_archive_shift,
 )
+from history_analytics import build_history_dashboard
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 
@@ -218,6 +220,49 @@ def history_shifts():
         return jsonify({"ok": True, "unit_id": unit_id, "shifts": rows, "count": len(rows)})
     except Exception as e:
         return jsonify({"ok": False, "error": "history_list_failed", "detail": str(e)}), 500
+
+
+@app.get("/api/history/dashboard")
+def history_dashboard():
+    unit_id = str(request.args.get("unit") or "unit_i").strip().lower()
+    shift_id = str(request.args.get("shift_id") or "").strip()
+    if unit_id not in ("unit_i", "unit_ii"):
+        return jsonify({"ok": False, "error": "unit must be unit_i or unit_ii"}), 400
+    if not shift_id:
+        return jsonify({"ok": False, "error": "shift_id required"}), 400
+
+    meta = get_shift_archive(_db, unit_id, shift_id)
+    if not meta:
+        return jsonify({"ok": False, "error": "shift_not_archived", "shift_id": shift_id}), 404
+    if _storage is None:
+        return jsonify({"ok": False, "error": "gcs_not_configured"}), 503
+
+    try:
+        csv_bytes = download_shift_csv(_storage, meta["gcs_path"])
+        payload = build_history_dashboard(
+            unit_id=unit_id,
+            shift_id=shift_id,
+            csv_bytes=csv_bytes,
+            department=str(request.args.get("department") or "").strip(),
+            supervisor=str(request.args.get("supervisor") or "").strip(),
+            machine=str(request.args.get("machine") or "").strip(),
+            idle_type=str(request.args.get("idle_type") or "").strip(),
+        )
+        payload["archive"] = {
+            "archived_at": meta.get("archived_at"),
+            "row_count": meta.get("row_count"),
+            "bytes": meta.get("bytes"),
+            "gcs_path": meta.get("gcs_path"),
+        }
+        # Strip internal analytics keys from API response
+        for row in payload.get("idle_history") or []:
+            for k in list(row.keys()):
+                if k.startswith("_"):
+                    row.pop(k, None)
+        return jsonify(payload)
+    except Exception as e:
+        print(f"HISTORY dashboard error: {e}")
+        return jsonify({"ok": False, "error": "history_dashboard_failed", "detail": str(e)}), 500
 
 
 @app.get("/live")
