@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Alubee Status</title>
   <link rel="manifest" href="{{ url_for('static', filename='mobile/manifest.webmanifest') }}" />
-  <link rel="stylesheet" href="{{ url_for('static', filename='mobile/mobile.css') }}?v=5" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='mobile/mobile.css') }}?v=6" />
 </head>
 <body>
   <header class="top">
@@ -63,6 +63,6 @@
   <div class="toast hidden" id="toast" role="status"></div>
   <audio id="alarm-ringtone-preload" src="{{ url_for('static', filename='mobile/alarm_ringtone.wav') }}" preload="auto"></audio>
 
-  <script type="module" src="{{ url_for('static', filename='mobile/mobile.js') }}?v=5"></script>
+  <script type="module" src="{{ url_for('static', filename='mobile/mobile.js') }}?v=6"></script>
 </body>
 </html>

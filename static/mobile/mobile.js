@@ -1,4 +1,8 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+import {
+  initializeApp,
+  getApps,
+  getApp,
+} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
 import {
   getMessaging,
   getToken,
@@ -34,6 +38,7 @@ const pushEnableBtn = document.getElementById("push-enable-btn");
 let latest = null;
 let toastTimer = null;
 let fcmMessaging = null;
+let fcmForegroundHooked = false;
 let alarmAudio = null;
 let alarmStopTimer = null;
 
@@ -79,7 +84,10 @@ function setPushUi(text, enabled) {
   if (pushEnableBtn) {
     pushEnableBtn.disabled = !!enabled;
     pushEnableBtn.textContent = enabled ? "On" : "Enable";
+    pushEnableBtn.classList.toggle("hidden", !!enabled);
   }
+  const bar = document.getElementById("push-bar");
+  if (bar) bar.classList.toggle("push-on", !!enabled);
 }
 
 function stopAlarmSound() {
@@ -313,31 +321,42 @@ async function refreshHistory() {
   }
 }
 
-async function enablePush() {
-  if (!IS_MOBILE_ROUTE) return;
+async function setupPush({ interactive = false } = {}) {
+  if (!IS_MOBILE_ROUTE) return false;
   try {
-    setPushUi("Requesting permission…", false);
+    if (interactive) setPushUi("Requesting permission…", false);
+
     const cfgRes = await fetch("/api/mobile/push/config", { cache: "no-store" });
     const cfg = await cfgRes.json();
     if (!cfg.ok || !cfg.configured) {
       setPushUi("Push not configured on server (set FIREBASE_* env vars).", false);
-      return;
+      return false;
     }
     const supported = await isSupported();
     if (!supported) {
       setPushUi("This browser does not support web push.", false);
-      return;
+      return false;
     }
-    const perm = await Notification.requestPermission();
+
+    let perm = Notification.permission;
+    if (perm === "default") {
+      if (!interactive) {
+        setPushUi("Enable notifications for locked-phone alerts.", false);
+        return false;
+      }
+      perm = await Notification.requestPermission();
+    }
     if (perm !== "granted") {
       setPushUi("Notifications blocked — allow them in browser settings.", false);
-      return;
+      return false;
     }
+
+    if (interactive) setPushUi("Connecting push…", false);
 
     const reg = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
     await navigator.serviceWorker.ready;
 
-    const app = initializeApp(cfg.firebase);
+    const app = getApps().length ? getApp() : initializeApp(cfg.firebase);
     fcmMessaging = getMessaging(app);
     const token = await getToken(fcmMessaging, {
       vapidKey: cfg.vapidKey,
@@ -345,7 +364,7 @@ async function enablePush() {
     });
     if (!token) {
       setPushUi("Could not get FCM token.", false);
-      return;
+      return false;
     }
     localStorage.setItem(TOKEN_KEY, token);
     await fetch("/api/mobile/push/subscribe", {
@@ -357,21 +376,29 @@ async function enablePush() {
       }),
     });
 
-    onMessage(fcmMessaging, (payload) => {
-      const title = payload.notification?.title || payload.data?.title || "Alubee Status";
-      const body = payload.notification?.body || payload.data?.body || "Offline alert";
-      showToast(`${title}: ${body}`, { ring: true });
-    });
+    if (!fcmForegroundHooked) {
+      fcmForegroundHooked = true;
+      onMessage(fcmMessaging, (payload) => {
+        const title = payload.notification?.title || payload.data?.title || "Alubee Status";
+        const body = payload.notification?.body || payload.data?.body || "Offline alert";
+        showToast(`${title}: ${body}`, { ring: true });
+      });
+    }
 
-    setPushUi("Push on — locked: sound + vibe; open app for ringtone.", true);
+    setPushUi("Notifications on — locked: sound + vibe; open app for ringtone.", true);
+    return true;
   } catch (err) {
     console.error(err);
     setPushUi(`Enable failed: ${err.message || err}`, false);
+    return false;
   }
 }
 
 async function initPushBar() {
   if (!IS_MOBILE_ROUTE) return;
+  if (pushEnableBtn) {
+    pushEnableBtn.addEventListener("click", () => setupPush({ interactive: true }));
+  }
   try {
     const cfgRes = await fetch("/api/mobile/push/config", { cache: "no-store" });
     const cfg = await cfgRes.json();
@@ -380,15 +407,16 @@ async function initPushBar() {
       if (pushEnableBtn) pushEnableBtn.disabled = true;
       return;
     }
-    if (Notification.permission === "granted" && localStorage.getItem(TOKEN_KEY)) {
-      setPushUi("Push on — tap Enable again to refresh token.", false);
-    } else {
-      setPushUi("Enable notifications to alert even when the app is closed.", false);
+    // Already allowed → reconnect quietly (no Enable prompt)
+    if (Notification.permission === "granted") {
+      setPushUi("Restoring notifications…", true);
+      await setupPush({ interactive: false });
+      return;
     }
+    setPushUi("Enable notifications for locked-phone alerts.", false);
   } catch {
     setPushUi("Could not load push config.", false);
   }
-  if (pushEnableBtn) pushEnableBtn.addEventListener("click", enablePush);
 }
 
 document.querySelectorAll(".tab").forEach((tab) => {

@@ -51,6 +51,10 @@ body {
   padding: 0 0.55rem;
 }
 .alarm-badge.hidden { display: none; }
+.hidden { display: none !important; }
+.push-bar.push-on .push-copy strong::after {
+  content: " ✓";
+}
 
 .tabs {
   display: grid;
