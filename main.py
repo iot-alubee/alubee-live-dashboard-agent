@@ -648,12 +648,15 @@ messaging.onBackgroundMessage((payload) => {{
   const title = (payload.notification && payload.notification.title) || 'Alubee Status';
   const body = (payload.notification && payload.notification.body) || 'Device offline';
   const data = payload.data || {{}};
+  // Locked / background: system sound + strong vibe (no custom music here)
   self.registration.showNotification(title, {{
     body: body,
     icon: '/static/mobile/icon-192.png',
     badge: '/static/mobile/icon-192.png',
-    data: data,
+    data: Object.assign({{}}, data, {{ play_on_open: '1' }}),
     requireInteraction: true,
+    silent: false,
+    vibrate: [500, 200, 500, 200, 500, 200, 500, 200, 500, 200, 500],
     tag: (data.kind || 'status') + ':' + (data.name || 'alert'),
     renotify: true
   }});
@@ -661,11 +664,17 @@ messaging.onBackgroundMessage((payload) => {{
 
 self.addEventListener('notificationclick', (event) => {{
   event.notification.close();
-  const target = '/mobile';
+  const n = event.notification;
+  const title = n.title || 'Alubee Status';
+  const body = n.body || 'Offline alert';
+  const target = '/mobile?alarm=1';
   event.waitUntil(
     clients.matchAll({{ type: 'window', includeUncontrolled: true }}).then((list) => {{
       for (const c of list) {{
-        if (c.url && c.url.indexOf('/mobile') !== -1 && 'focus' in c) return c.focus();
+        if (c.url && c.url.indexOf('/mobile') !== -1 && 'focus' in c) {{
+          c.postMessage({{ type: 'PLAY_ALARM', title: title, body: body }});
+          return c.focus();
+        }}
       }}
       if (clients.openWindow) return clients.openWindow(target);
     }})

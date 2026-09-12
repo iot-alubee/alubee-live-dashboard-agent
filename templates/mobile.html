@@ -22,7 +22,7 @@
   <div class="push-bar card" id="push-bar">
     <div class="push-copy">
       <strong>Locked-phone alarms</strong>
-      <span id="push-status">Enable notifications to alert even when the app is closed.</span>
+      <span id="push-status">Enable for sound + strong vibe when locked; ringtone when you open.</span>
     </div>
     <button type="button" class="btn" id="push-enable-btn">Enable</button>
   </div>
@@ -40,8 +40,8 @@
 
     <section id="panel-alarms" class="panel">
       <div class="card tip">
-        Alarm plays a <strong>loud ringtone</strong> for up to 10 seconds (stops on Acknowledge).
-        Firebase push still alerts when the phone is locked (system sound; custom music needs the app open).
+        <strong>Locked:</strong> strong vibration + phone notification sound.<br />
+        <strong>Opened:</strong> loud ringtone (~10s, stops on Acknowledge).
       </div>
       <div id="alarms-root" class="stack"></div>
       <button type="button" class="btn full" id="ack-all-btn">Acknowledge all</button>

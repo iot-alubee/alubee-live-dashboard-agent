@@ -218,8 +218,14 @@ def _send_all(title: str, body: str, data: dict | None = None) -> None:
                     body=body,
                     icon=f"{base}/static/mobile/icon-192.png",
                     require_interaction=True,
+                    # Locked phone: OS notification sound + strong vibration
+                    # (custom ringtone only plays after user opens /mobile)
+                    silent=False,
+                    vibrate=[500, 200, 500, 200, 500, 200, 500, 200, 500, 200, 500],
+                    tag=f"{data.get('kind', 'status')}:{data.get('name', 'alert')}",
+                    renotify=True,
                 ),
-                fcm_options=messaging.WebpushFCMOptions(link=f"{base}/mobile"),
+                fcm_options=messaging.WebpushFCMOptions(link=f"{base}/mobile?alarm=1"),
             ),
         )
         try:

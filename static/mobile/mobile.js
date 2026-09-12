@@ -115,12 +115,20 @@ function playRingtoneAlarm() {
   }
   try {
     if (navigator.vibrate) {
+      // Strong pulse while ringtone plays (app open only)
       const pattern = [];
-      for (let i = 0; i < 20; i++) pattern.push(280, 120);
+      for (let i = 0; i < 25; i++) pattern.push(450, 150);
       navigator.vibrate(pattern);
     }
   } catch (_) {}
   alarmStopTimer = setTimeout(() => stopAlarmSound(), ALARM_MS);
+}
+
+/** Play ringtone when user opens the app (notification tap / unlock → open). */
+function playAlarmOnOpen(title, body) {
+  const t = title || "Alubee Status";
+  const b = body || "Offline alert";
+  showToast(`${t}: ${b}`, { ring: true });
 }
 
 function showToast(msg, { ring = true } = {}) {
@@ -355,7 +363,7 @@ async function enablePush() {
       showToast(`${title}: ${body}`, { ring: true });
     });
 
-    setPushUi("Push on — alarms work when locked / app closed.", true);
+    setPushUi("Push on — locked: sound + vibe; open app for ringtone.", true);
   } catch (err) {
     console.error(err);
     setPushUi(`Enable failed: ${err.message || err}`, false);
@@ -416,17 +424,24 @@ if (IS_MOBILE_ROUTE) {
     navigator.serviceWorker.addEventListener("message", (event) => {
       const msg = event.data || {};
       if (msg.type === "PLAY_ALARM") {
-        const title = msg.title || "Alubee Status";
-        const body = msg.body || "Offline alert";
-        showToast(`${title}: ${body}`, { ring: true });
+        playAlarmOnOpen(msg.title, msg.body);
       }
     });
   }
   const params = new URLSearchParams(location.search || "");
   if (params.get("alarm") === "1") {
-    showToast("Offline alarm", { ring: true });
+    playAlarmOnOpen("Offline alarm", "Open from notification");
     try {
       history.replaceState({}, "", "/mobile");
     } catch (_) {}
   }
+
+  // Returning to the app with unacked alarms → play ringtone
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible" || !latest) return;
+    const act = activeAlarms(latest);
+    if (act.length) {
+      playAlarmOnOpen("Offline", act.map((a) => a.name).join(", "));
+    }
+  });
 }
