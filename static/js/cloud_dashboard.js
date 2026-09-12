@@ -541,7 +541,7 @@ async function refreshSnapshot() {
   if (refreshInFlight) return;
   refreshInFlight = true;
   try {
-    const res = await fetch("/live?unit=" + encodeURIComponent(currentUnit), {
+    const res = await fetch("/api/snapshot?unit=" + encodeURIComponent(currentUnit), {
       cache: "no-store",
     });
     if (!res.ok) throw new Error("API " + res.status);

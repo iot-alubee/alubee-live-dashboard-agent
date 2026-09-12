@@ -27,6 +27,11 @@ from archive_service import (
 )
 from history_analytics import build_history_dashboard
 from machine_registry import enrich_machine, filter_options, live_filter_options
+from status_service import (
+    build_mobile_status,
+    list_status_history,
+    process_ingest,
+)
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 
@@ -96,7 +101,8 @@ def _save_unit(unit_id: str, payload: dict) -> None:
 
 def _load_unit(unit_id: str):
     if _db is not None:
-        snap = _db.collection("units").document(unit_id).get()
+        # timeout avoids hanging the Live UI forever when ADC/network stalls
+        snap = _db.collection("units").document(unit_id).get(timeout=12.0)
         if snap.exists:
             return snap.to_dict()
         return None
@@ -167,12 +173,30 @@ def _live_filters_from_snapshot(unit_id: str, shift_name: str, machines: list) -
 
 @app.get("/health")
 def health():
+    firestore_read_ok = None
+    firestore_read_detail = None
+    if _db is not None:
+        try:
+            snap = _db.collection("units").document("unit_i").get(timeout=8.0)
+            firestore_read_ok = True
+            d = snap.to_dict() if snap.exists else None
+            firestore_read_detail = {
+                "unit_i_exists": bool(snap.exists),
+                "machines": len((d or {}).get("machines") or []) if d else 0,
+                "updated_at": (d or {}).get("updated_at") or (d or {}).get("cloud_received_at"),
+            }
+        except Exception as e:
+            firestore_read_ok = False
+            firestore_read_detail = str(e)
+            print(f"HEALTH firestore read failed: {e}")
     return jsonify(
         {
             "ok": True,
             "firestore": _db is not None,
             "firestore_database": FIRESTORE_DATABASE,
             "firestore_error": _db_error,
+            "firestore_read_ok": firestore_read_ok,
+            "firestore_read_detail": firestore_read_detail,
             "gcp_project": GCP_PROJECT,
             "gcs_bucket": GCS_ARCHIVE_BUCKET or None,
             "gcs": _storage is not None and bool(GCS_ARCHIVE_BUCKET),
@@ -225,6 +249,10 @@ def ingest():
                 "firestore_database": FIRESTORE_DATABASE,
             }
         ), 500
+    try:
+        process_ingest(_db, unit_id, payload)
+    except Exception as e:
+        print(f"INGEST status process error: {e}")
     return jsonify({"ok": True, "unit_id": unit_id, "machines": len(machines)})
 
 
@@ -454,15 +482,20 @@ def history_dashboard():
         return jsonify({"ok": False, "error": "history_dashboard_failed", "detail": str(e)}), 500
 
 
-@app.get("/live")
-def live():
+def _live_payload():
     unit_id = str(request.args.get("unit") or "unit_i").strip().lower()
     if unit_id not in ("unit_i", "unit_ii"):
         return jsonify({"ok": False, "error": "unit must be unit_i or unit_ii"}), 400
 
     try:
+        print(f"LIVE read start unit={unit_id} firestore={_db is not None}")
         data = _load_unit(unit_id)
+        print(
+            f"LIVE read done unit={unit_id} found={data is not None} "
+            f"machines={len((data or {}).get('machines') or [])}"
+        )
     except Exception as e:
+        print(f"LIVE firestore_read_failed unit={unit_id}: {e}")
         return jsonify({"ok": False, "error": "firestore_read_failed", "detail": str(e)}), 500
 
     if not data:
@@ -484,10 +517,57 @@ def live():
     return jsonify(out)
 
 
+@app.get("/api/snapshot")
+def api_snapshot():
+    """Dashboard poll path — prefer over /live (ad-blockers often block /live)."""
+    return _live_payload()
+
+
+@app.get("/live")
+def live():
+    return _live_payload()
+
+
+@app.get("/api/mobile/status")
+def api_mobile_status():
+    """Machines + plant servers online/offline for the mobile status app."""
+    try:
+        payload = build_mobile_status(_db, _load_unit)
+        return jsonify(payload)
+    except Exception as e:
+        print(f"MOBILE status error: {e}")
+        return jsonify({"ok": False, "error": "mobile_status_failed", "detail": str(e)}), 500
+
+
+@app.get("/api/mobile/history")
+def api_mobile_history():
+    """Offline/online event log (connectivity only)."""
+    unit_id = str(request.args.get("unit") or "").strip().lower() or None
+    if unit_id and unit_id not in ("unit_i", "unit_ii"):
+        return jsonify({"ok": False, "error": "unit must be unit_i or unit_ii"}), 400
+    try:
+        limit = int(request.args.get("limit") or 100)
+    except Exception:
+        limit = 100
+    try:
+        rows = list_status_history(_db, unit_id=unit_id, limit=limit)
+        return jsonify({"ok": True, "events": rows, "count": len(rows)})
+    except Exception as e:
+        print(f"MOBILE history error: {e}")
+        return jsonify({"ok": False, "error": "mobile_history_failed", "detail": str(e)}), 500
+
+
 @app.get("/")
 def index():
     """Same Live Monitor look as plant Flask — data from /live snapshot."""
     return render_template("index.html")
+
+
+@app.get("/mobile")
+@app.get("/m")
+def mobile_app():
+    """Status-only mobile PWA (machines + servers, one-shot alarm, history)."""
+    return render_template("mobile.html")
 
 
 if __name__ == "__main__":

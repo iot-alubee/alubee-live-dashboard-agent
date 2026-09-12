@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0d1b2a" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Alubee Status</title>
+  <link rel="manifest" href="{{ url_for('static', filename='mobile/manifest.webmanifest') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='mobile/mobile.css') }}?v=1" />
+</head>
+<body>
+  <header class="top">
+    <div>
+      <div class="brand">Alubee Status</div>
+      <div class="sub" id="polled-at">Connecting…</div>
+    </div>
+    <div class="alarm-badge hidden" id="alarm-badge">0</div>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button type="button" class="tab active" data-panel="live">Live</button>
+    <button type="button" class="tab" data-panel="alarms">Alarms</button>
+    <button type="button" class="tab" data-panel="history">History</button>
+  </nav>
+
+  <main>
+    <section id="panel-live" class="panel active">
+      <div id="live-root" class="stack"></div>
+    </section>
+
+    <section id="panel-alarms" class="panel">
+      <div class="card tip">
+        Alarm sounds <strong>once</strong> per offline incident. Tap Acknowledge to silence that item until it recovers and goes offline again.
+      </div>
+      <div id="alarms-root" class="stack"></div>
+      <button type="button" class="btn full" id="ack-all-btn">Acknowledge all</button>
+    </section>
+
+    <section id="panel-history" class="panel">
+      <div class="filter-row">
+        <select id="hist-unit">
+          <option value="">All units</option>
+          <option value="unit_i">Unit I</option>
+          <option value="unit_ii">Unit II</option>
+        </select>
+        <button type="button" class="btn" id="hist-refresh">Refresh</button>
+      </div>
+      <div id="history-root" class="stack"></div>
+    </section>
+  </main>
+
+  <div class="toast hidden" id="toast" role="status"></div>
+
+  <script src="{{ url_for('static', filename='mobile/mobile.js') }}?v=2"></script>
+</body>
+</html>

@@ -1,16 +1,45 @@
 # Cloud API — deploy to Google Cloud Run
 
-## Local test (memory store, no Firestore)
+## Local test
 
-```bash
-cd "Production-Upgraded/Cloud Setup/cloud_api"
+### Option A — Full History + Live (real GCP data)
+
+Uses your PC’s Google credentials to read the same Firestore/GCS as Cloud Run.
+
+```powershell
+cd "Production-Upgraded\Cloud Setup\cloud_api"
 pip install -r requirements.txt
-set USE_FIRESTORE=0
-set INGEST_API_KEY=dev-secret
-python main.py
+
+# One-time (browser login):
+gcloud auth application-default login
+
+.\run_local.ps1
 ```
 
-Open http://127.0.0.1:8080
+Open http://127.0.0.1:8080 → **History** tab → pick date/shift → **Load**.
+
+**Live** tab on local still needs snapshots: either run `cloud_agent` with  
+`"cloud_url": "http://127.0.0.1:8080"` while local server is running, or use Live on deployed Cloud Run only.
+
+### Option B — UI only (no GCP)
+
+```powershell
+.\run_local_memory.ps1
+```
+
+`USE_FIRESTORE=0` — History empty; good for layout/filter checks only.
+
+### Point plant agent at local (optional)
+
+In `Cloud Setup\Unit_I\agent\config.json` temporarily:
+
+```json
+"cloud_url": "http://127.0.0.1:8080"
+```
+
+Run `python cloud_agent.py` on the same PC as local Flask (8501). Live tab fills within ~10s.
+
+Revert `cloud_url` to the Cloud Run URL when done.
 
 ## Deploy to Cloud Run
 
@@ -53,7 +82,10 @@ Agent `config.json` `cloud_url` must match the Live URL above.
 | POST | `/archive` | Plant PC shift archiver (`X-API-Key`, multipart CSV) |
 | GET | `/api/history/shifts?unit=unit_i&from=&to=` | List archived shifts |
 | GET | `/live?unit=unit_i` | Browsers |
+| GET | `/api/mobile/status` | Mobile app — machines + servers online/offline |
+| GET | `/api/mobile/history` | Mobile app — connectivity event log |
+| GET | `/mobile` or `/m` | Mobile status PWA |
 | GET | `/health` | Probe (shows `gcs`, `gcs_bucket`) |
-| GET | `/` | Simple 2s live page |
+| GET | `/` | Live Monitor page |
 
 Keep **min-instances = 0** for low cost.

@@ -1,0 +1,17 @@
+{
+  "name": "Alubee Status",
+  "short_name": "Alubee",
+  "description": "Plant machine and server online status",
+  "start_url": "/mobile",
+  "display": "standalone",
+  "background_color": "#071018",
+  "theme_color": "#0d1b2a",
+  "icons": [
+    {
+      "src": "/static/mobile/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
