@@ -10,8 +10,9 @@ const POLL_MS = 8000;
 const ACK_KEY = "alubee_mobile_ack_v1";
 const SEEN_KEY = "alubee_mobile_alarmed_v1";
 const TOKEN_KEY = "alubee_fcm_token_v1";
+const ALARM_MS = 10000;
+const RINGTONE_URL = "/static/mobile/alarm_ringtone.wav";
 
-// Alarms ONLY on /mobile (or /m) — never on the main Live dashboard
 const path = String(location.pathname || "").replace(/\/+$/, "") || "/";
 const IS_MOBILE_ROUTE = path === "/mobile" || path === "/m";
 if (!IS_MOBILE_ROUTE) {
@@ -27,7 +28,6 @@ const toast = document.getElementById("toast");
 const ackAllBtn = document.getElementById("ack-all-btn");
 const histUnit = document.getElementById("hist-unit");
 const histRefresh = document.getElementById("hist-refresh");
-const pushBar = document.getElementById("push-bar");
 const pushStatus = document.getElementById("push-status");
 const pushEnableBtn = document.getElementById("push-enable-btn");
 
@@ -36,60 +36,6 @@ let toastTimer = null;
 let fcmMessaging = null;
 let alarmAudio = null;
 let alarmStopTimer = null;
-const ALARM_MS = 10000;
-const RINGTONE_URL = "/static/mobile/alarm_ringtone.wav";
-
-function stopAlarmSound() {
-  clearTimeout(alarmStopTimer);
-  alarmStopTimer = null;
-  try {
-    if (navigator.vibrate) navigator.vibrate(0);
-  } catch (_) {}
-  if (alarmAudio) {
-    try {
-      alarmAudio.pause();
-      alarmAudio.currentTime = 0;
-    } catch (_) {}
-  }
-}
-
-function playRingtoneAlarm() {
-  stopAlarmSound();
-  try {
-    if (!alarmAudio) {
-      alarmAudio = new Audio(RINGTONE_URL);
-      alarmAudio.preload = "auto";
-    }
-    alarmAudio.loop = true;
-    alarmAudio.volume = 1.0;
-    alarmAudio.currentTime = 0;
-    const p = alarmAudio.play();
-    if (p && typeof p.catch === "function") {
-      p.catch((err) => console.warn("Ringtone blocked:", err));
-    }
-  } catch (err) {
-    console.warn("Ringtone failed:", err);
-  }
-  try {
-    // Strong repeating vibrate while ringing
-    if (navigator.vibrate) {
-      const pattern = [];
-      for (let i = 0; i < 20; i++) pattern.push(280, 120);
-      navigator.vibrate(pattern);
-    }
-  } catch (_) {}
-  alarmStopTimer = setTimeout(() => stopAlarmSound(), ALARM_MS);
-}
-
-function showToast(msg, { ring = true } = {}) {
-  if (!toast) return;
-  toast.textContent = msg;
-  toast.classList.remove("hidden");
-  clearTimeout(toastTimer);
-  // Keep toast visible while ringtone can play
-  toastTimer = setTimeout(() => toast.classList.add("hidden"), ALARM_MS + 1500);
-  if (ring) playRingtoneAlarm();
-}
 
 function loadSet(key) {
   try {
@@ -136,6 +82,56 @@ function setPushUi(text, enabled) {
   }
 }
 
+function stopAlarmSound() {
+  clearTimeout(alarmStopTimer);
+  alarmStopTimer = null;
+  try {
+    if (navigator.vibrate) navigator.vibrate(0);
+  } catch (_) {}
+  if (alarmAudio) {
+    try {
+      alarmAudio.pause();
+      alarmAudio.currentTime = 0;
+    } catch (_) {}
+  }
+}
+
+function playRingtoneAlarm() {
+  stopAlarmSound();
+  try {
+    if (!alarmAudio) {
+      alarmAudio = new Audio(RINGTONE_URL);
+      alarmAudio.preload = "auto";
+    }
+    alarmAudio.loop = true;
+    alarmAudio.volume = 1.0;
+    alarmAudio.currentTime = 0;
+    const p = alarmAudio.play();
+    if (p && typeof p.catch === "function") {
+      p.catch((err) => console.warn("Ringtone blocked:", err));
+    }
+  } catch (err) {
+    console.warn("Ringtone failed:", err);
+  }
+  try {
+    if (navigator.vibrate) {
+      const pattern = [];
+      for (let i = 0; i < 20; i++) pattern.push(280, 120);
+      navigator.vibrate(pattern);
+    }
+  } catch (_) {}
+  alarmStopTimer = setTimeout(() => stopAlarmSound(), ALARM_MS);
+}
+
+function showToast(msg, { ring = true } = {}) {
+  if (!toast) return;
+  toast.textContent = msg;
+  toast.classList.remove("hidden");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.add("hidden"), ALARM_MS + 1500);
+  if (ring) playRingtoneAlarm();
+}
+
 function activeAlarms(data) {
   return (data.alarms || []).filter((a) => !acked.has(a.key));
 }
@@ -167,9 +163,7 @@ function maybeFireAlarms(data) {
     const names = fresh.map((a) => a.name).join(", ");
     showToast(`Offline: ${names}`, { ring: true });
   }
-  if (!activeAlarms(data).length) {
-    stopAlarmSound();
-  }
+  if (!activeAlarms(data).length) stopAlarmSound();
 }
 
 function renderLive(data) {
@@ -356,8 +350,8 @@ async function enablePush() {
     });
 
     onMessage(fcmMessaging, (payload) => {
-      const title = payload.notification?.title || "Alubee Status";
-      const body = payload.notification?.body || "Offline alert";
+      const title = payload.notification?.title || payload.data?.title || "Alubee Status";
+      const body = payload.notification?.body || payload.data?.body || "Offline alert";
       showToast(`${title}: ${body}`, { ring: true });
     });
 
@@ -369,7 +363,7 @@ async function enablePush() {
 }
 
 async function initPushBar() {
-  if (!pushBar || !IS_MOBILE_ROUTE) return;
+  if (!IS_MOBILE_ROUTE) return;
   try {
     const cfgRes = await fetch("/api/mobile/push/config", { cache: "no-store" });
     const cfg = await cfgRes.json();
@@ -417,4 +411,22 @@ if (IS_MOBILE_ROUTE) {
   refreshStatus();
   setInterval(refreshStatus, POLL_MS);
   initPushBar();
+
+  if (navigator.serviceWorker) {
+    navigator.serviceWorker.addEventListener("message", (event) => {
+      const msg = event.data || {};
+      if (msg.type === "PLAY_ALARM") {
+        const title = msg.title || "Alubee Status";
+        const body = msg.body || "Offline alert";
+        showToast(`${title}: ${body}`, { ring: true });
+      }
+    });
+  }
+  const params = new URLSearchParams(location.search || "");
+  if (params.get("alarm") === "1") {
+    showToast("Offline alarm", { ring: true });
+    try {
+      history.replaceState({}, "", "/mobile");
+    } catch (_) {}
+  }
 }
