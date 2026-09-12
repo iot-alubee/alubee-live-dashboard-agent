@@ -34,6 +34,62 @@ const pushEnableBtn = document.getElementById("push-enable-btn");
 let latest = null;
 let toastTimer = null;
 let fcmMessaging = null;
+let alarmAudio = null;
+let alarmStopTimer = null;
+const ALARM_MS = 10000;
+const RINGTONE_URL = "/static/mobile/alarm_ringtone.wav";
+
+function stopAlarmSound() {
+  clearTimeout(alarmStopTimer);
+  alarmStopTimer = null;
+  try {
+    if (navigator.vibrate) navigator.vibrate(0);
+  } catch (_) {}
+  if (alarmAudio) {
+    try {
+      alarmAudio.pause();
+      alarmAudio.currentTime = 0;
+    } catch (_) {}
+  }
+}
+
+function playRingtoneAlarm() {
+  stopAlarmSound();
+  try {
+    if (!alarmAudio) {
+      alarmAudio = new Audio(RINGTONE_URL);
+      alarmAudio.preload = "auto";
+    }
+    alarmAudio.loop = true;
+    alarmAudio.volume = 1.0;
+    alarmAudio.currentTime = 0;
+    const p = alarmAudio.play();
+    if (p && typeof p.catch === "function") {
+      p.catch((err) => console.warn("Ringtone blocked:", err));
+    }
+  } catch (err) {
+    console.warn("Ringtone failed:", err);
+  }
+  try {
+    // Strong repeating vibrate while ringing
+    if (navigator.vibrate) {
+      const pattern = [];
+      for (let i = 0; i < 20; i++) pattern.push(280, 120);
+      navigator.vibrate(pattern);
+    }
+  } catch (_) {}
+  alarmStopTimer = setTimeout(() => stopAlarmSound(), ALARM_MS);
+}
+
+function showToast(msg, { ring = true } = {}) {
+  if (!toast) return;
+  toast.textContent = msg;
+  toast.classList.remove("hidden");
+  clearTimeout(toastTimer);
+  // Keep toast visible while ringtone can play
+  toastTimer = setTimeout(() => toast.classList.add("hidden"), ALARM_MS + 1500);
+  if (ring) playRingtoneAlarm();
+}
 
 function loadSet(key) {
   try {
@@ -80,32 +136,6 @@ function setPushUi(text, enabled) {
   }
 }
 
-function showToast(msg) {
-  if (!toast) return;
-  toast.textContent = msg;
-  toast.classList.remove("hidden");
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toast.classList.add("hidden"), 6000);
-  try {
-    if (navigator.vibrate) navigator.vibrate([120, 60, 120]);
-  } catch (_) {}
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-    o.type = "square";
-    o.frequency.value = 880;
-    g.gain.value = 0.04;
-    o.connect(g);
-    g.connect(ctx.destination);
-    o.start();
-    setTimeout(() => {
-      o.stop();
-      ctx.close();
-    }, 220);
-  } catch (_) {}
-}
-
 function activeAlarms(data) {
   return (data.alarms || []).filter((a) => !acked.has(a.key));
 }
@@ -135,7 +165,10 @@ function maybeFireAlarms(data) {
   saveSet(SEEN_KEY, alreadyAlarmed);
   if (fresh.length) {
     const names = fresh.map((a) => a.name).join(", ");
-    showToast(`Offline: ${names}`);
+    showToast(`Offline: ${names}`, { ring: true });
+  }
+  if (!activeAlarms(data).length) {
+    stopAlarmSound();
   }
 }
 
@@ -214,6 +247,8 @@ function renderAlarms(data) {
     btn.addEventListener("click", () => {
       acked.add(btn.dataset.key);
       saveSet(ACK_KEY, acked);
+      stopAlarmSound();
+      if (toast) toast.classList.add("hidden");
       renderAlarms(latest || data);
     });
   });
@@ -323,7 +358,7 @@ async function enablePush() {
     onMessage(fcmMessaging, (payload) => {
       const title = payload.notification?.title || "Alubee Status";
       const body = payload.notification?.body || "Offline alert";
-      showToast(`${title}: ${body}`);
+      showToast(`${title}: ${body}`, { ring: true });
     });
 
     setPushUi("Push on — alarms work when locked / app closed.", true);
@@ -369,6 +404,8 @@ if (ackAllBtn) {
   ackAllBtn.addEventListener("click", () => {
     for (const a of (latest && latest.alarms) || []) acked.add(a.key);
     saveSet(ACK_KEY, acked);
+    stopAlarmSound();
+    if (toast) toast.classList.add("hidden");
     renderAlarms(latest || { alarms: [] });
   });
 }

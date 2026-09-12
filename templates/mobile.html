@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Alubee Status</title>
   <link rel="manifest" href="{{ url_for('static', filename='mobile/manifest.webmanifest') }}" />
-  <link rel="stylesheet" href="{{ url_for('static', filename='mobile/mobile.css') }}?v=3" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='mobile/mobile.css') }}?v=4" />
 </head>
 <body>
   <header class="top">
@@ -40,8 +40,8 @@
 
     <section id="panel-alarms" class="panel">
       <div class="card tip">
-        Alarm fires <strong>once</strong> per offline incident (in-app + Firebase push when enabled).
-        Acknowledge silences the in-app list until it recovers and drops again.
+        Alarm plays a <strong>loud ringtone</strong> for up to 10 seconds (stops on Acknowledge).
+        Firebase push still alerts when the phone is locked.
       </div>
       <div id="alarms-root" class="stack"></div>
       <button type="button" class="btn full" id="ack-all-btn">Acknowledge all</button>
@@ -61,7 +61,8 @@
   </main>
 
   <div class="toast hidden" id="toast" role="status"></div>
+  <audio id="alarm-ringtone-preload" src="{{ url_for('static', filename='mobile/alarm_ringtone.wav') }}" preload="auto"></audio>
 
-  <script type="module" src="{{ url_for('static', filename='mobile/mobile.js') }}?v=3"></script>
+  <script type="module" src="{{ url_for('static', filename='mobile/mobile.js') }}?v=4"></script>
 </body>
 </html>
