@@ -1,6 +1,15 @@
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+import {
+  getMessaging,
+  getToken,
+  isSupported,
+  onMessage,
+} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-messaging.js";
+
 const POLL_MS = 8000;
 const ACK_KEY = "alubee_mobile_ack_v1";
 const SEEN_KEY = "alubee_mobile_alarmed_v1";
+const TOKEN_KEY = "alubee_fcm_token_v1";
 
 // Alarms ONLY on /mobile (or /m) — never on the main Live dashboard
 const path = String(location.pathname || "").replace(/\/+$/, "") || "/";
@@ -18,9 +27,13 @@ const toast = document.getElementById("toast");
 const ackAllBtn = document.getElementById("ack-all-btn");
 const histUnit = document.getElementById("hist-unit");
 const histRefresh = document.getElementById("hist-refresh");
+const pushBar = document.getElementById("push-bar");
+const pushStatus = document.getElementById("push-status");
+const pushEnableBtn = document.getElementById("push-enable-btn");
 
 let latest = null;
 let toastTimer = null;
+let fcmMessaging = null;
 
 function loadSet(key) {
   try {
@@ -59,6 +72,14 @@ function formatAge(sec) {
   return `${Math.floor(sec / 3600)}h ago`;
 }
 
+function setPushUi(text, enabled) {
+  if (pushStatus) pushStatus.textContent = text;
+  if (pushEnableBtn) {
+    pushEnableBtn.disabled = !!enabled;
+    pushEnableBtn.textContent = enabled ? "On" : "Enable";
+  }
+}
+
 function showToast(msg) {
   if (!toast) return;
   toast.textContent = msg;
@@ -68,7 +89,6 @@ function showToast(msg) {
   try {
     if (navigator.vibrate) navigator.vibrate([120, 60, 120]);
   } catch (_) {}
-  // Short beep via Web Audio (one-shot)
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const o = ctx.createOscillator();
@@ -92,7 +112,6 @@ function activeAlarms(data) {
 
 function pruneAck(data) {
   const liveKeys = new Set((data.alarms || []).map((a) => a.key));
-  // Clear ack/alarmed when entity is healthy again
   for (const key of [...acked]) {
     if (!liveKeys.has(key)) acked.delete(key);
   }
@@ -209,7 +228,12 @@ function renderHistory(events) {
   historyRoot.innerHTML = events
     .map((e) => {
       const on = String(e.event || "") === "online";
-      const label = e.kind === "server" ? (e.unit_id === "unit_ii" ? "Unit II Server" : "Unit I Server") : e.name;
+      const label =
+        e.kind === "server"
+          ? e.unit_id === "unit_ii"
+            ? "Unit II Server"
+            : "Unit I Server"
+          : e.name;
       return `<article class="card event">
         <div class="dot ${on ? "on" : ""}"></div>
         <div>
@@ -252,6 +276,84 @@ async function refreshHistory() {
   }
 }
 
+async function enablePush() {
+  if (!IS_MOBILE_ROUTE) return;
+  try {
+    setPushUi("Requesting permission…", false);
+    const cfgRes = await fetch("/api/mobile/push/config", { cache: "no-store" });
+    const cfg = await cfgRes.json();
+    if (!cfg.ok || !cfg.configured) {
+      setPushUi("Push not configured on server (set FIREBASE_* env vars).", false);
+      return;
+    }
+    const supported = await isSupported();
+    if (!supported) {
+      setPushUi("This browser does not support web push.", false);
+      return;
+    }
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted") {
+      setPushUi("Notifications blocked — allow them in browser settings.", false);
+      return;
+    }
+
+    const reg = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
+    await navigator.serviceWorker.ready;
+
+    const app = initializeApp(cfg.firebase);
+    fcmMessaging = getMessaging(app);
+    const token = await getToken(fcmMessaging, {
+      vapidKey: cfg.vapidKey,
+      serviceWorkerRegistration: reg,
+    });
+    if (!token) {
+      setPushUi("Could not get FCM token.", false);
+      return;
+    }
+    localStorage.setItem(TOKEN_KEY, token);
+    await fetch("/api/mobile/push/subscribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token,
+        platform: navigator.platform || "",
+      }),
+    });
+
+    onMessage(fcmMessaging, (payload) => {
+      const title = payload.notification?.title || "Alubee Status";
+      const body = payload.notification?.body || "Offline alert";
+      showToast(`${title}: ${body}`);
+    });
+
+    setPushUi("Push on — alarms work when locked / app closed.", true);
+  } catch (err) {
+    console.error(err);
+    setPushUi(`Enable failed: ${err.message || err}`, false);
+  }
+}
+
+async function initPushBar() {
+  if (!pushBar || !IS_MOBILE_ROUTE) return;
+  try {
+    const cfgRes = await fetch("/api/mobile/push/config", { cache: "no-store" });
+    const cfg = await cfgRes.json();
+    if (!cfg.configured) {
+      setPushUi("Server push not configured yet (Firebase env).", false);
+      if (pushEnableBtn) pushEnableBtn.disabled = true;
+      return;
+    }
+    if (Notification.permission === "granted" && localStorage.getItem(TOKEN_KEY)) {
+      setPushUi("Push on — tap Enable again to refresh token.", false);
+    } else {
+      setPushUi("Enable notifications to alert even when the app is closed.", false);
+    }
+  } catch {
+    setPushUi("Could not load push config.", false);
+  }
+  if (pushEnableBtn) pushEnableBtn.addEventListener("click", enablePush);
+}
+
 document.querySelectorAll(".tab").forEach((tab) => {
   tab.addEventListener("click", () => {
     document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
@@ -274,9 +376,8 @@ if (ackAllBtn) {
 if (histRefresh) histRefresh.addEventListener("click", refreshHistory);
 if (histUnit) histUnit.addEventListener("change", refreshHistory);
 
-refreshStatus();
-setInterval(refreshStatus, POLL_MS);
-
-if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("/static/mobile/sw.js").catch(() => {});
+if (IS_MOBILE_ROUTE) {
+  refreshStatus();
+  setInterval(refreshStatus, POLL_MS);
+  initPushBar();
 }

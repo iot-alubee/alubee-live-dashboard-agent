@@ -205,3 +205,28 @@ body {
   justify-content: flex-end;
   margin-top: 8px;
 }
+
+.push-bar {
+  margin: 0 12px 10px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+.push-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.8rem;
+  color: var(--muted);
+  min-width: 0;
+}
+.push-copy strong {
+  color: var(--text);
+  font-size: 0.88rem;
+}
+.push-bar .btn {
+  flex: 0 0 auto;
+  padding: 0.55rem 0.9rem;
+  font-size: 0.82rem;
+}

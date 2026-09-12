@@ -3,7 +3,7 @@ FROM python:3.11-slim
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY main.py archive_service.py history_analytics.py machine_registry.py status_service.py ./
+COPY main.py archive_service.py history_analytics.py machine_registry.py status_service.py push_service.py ./
 COPY data ./data
 COPY templates ./templates
 COPY static ./static

@@ -32,6 +32,13 @@ from status_service import (
     list_status_history,
     process_ingest,
 )
+from push_service import (
+    delete_token,
+    push_configured,
+    save_token,
+    set_db as push_set_db,
+    web_config,
+)
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 
@@ -66,6 +73,7 @@ if USE_FIRESTORE:
         print(f"Firestore unavailable ({e}) — using memory store")
         _db = None
 
+push_set_db(_db)
 if GCS_ARCHIVE_BUCKET:
     try:
         from google.cloud import storage
@@ -555,6 +563,116 @@ def api_mobile_history():
     except Exception as e:
         print(f"MOBILE history error: {e}")
         return jsonify({"ok": False, "error": "mobile_history_failed", "detail": str(e)}), 500
+
+
+@app.get("/api/mobile/push/config")
+def api_mobile_push_config():
+    """Public Firebase web config for /mobile FCM subscribe."""
+    cfg = web_config()
+    return jsonify(
+        {
+            "ok": True,
+            "configured": push_configured(),
+            "firebase": {
+                "apiKey": cfg["apiKey"],
+                "authDomain": cfg["authDomain"],
+                "projectId": cfg["projectId"],
+                "storageBucket": cfg["storageBucket"],
+                "messagingSenderId": cfg["messagingSenderId"],
+                "appId": cfg["appId"],
+            },
+            "vapidKey": cfg["vapidKey"],
+        }
+    )
+
+
+@app.post("/api/mobile/push/subscribe")
+def api_mobile_push_subscribe():
+    """Save FCM device token from a /mobile browser."""
+    data = request.get_json(silent=True) or {}
+    token = str(data.get("token") or "").strip()
+    if not token:
+        return jsonify({"ok": False, "error": "token required"}), 400
+    try:
+        save_token(
+            _db,
+            token,
+            {
+                "user_agent": request.headers.get("User-Agent", "")[:240],
+                "platform": str(data.get("platform") or "")[:80],
+            },
+        )
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+
+
+@app.post("/api/mobile/push/unsubscribe")
+def api_mobile_push_unsubscribe():
+    data = request.get_json(silent=True) or {}
+    token = str(data.get("token") or "").strip()
+    delete_token(_db, token)
+    return jsonify({"ok": True})
+
+
+@app.get("/firebase-messaging-sw.js")
+def firebase_messaging_sw():
+    """FCM background handler — must be served from site root for push scope."""
+    cfg = web_config()
+    # Escape for JS string literals
+    def jq(s: str) -> str:
+        return (
+            str(s or "")
+            .replace("\\", "\\\\")
+            .replace("'", "\\'")
+            .replace("\n", " ")
+        )
+
+    js = f"""
+/* Alubee FCM background service worker */
+importScripts('https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/10.14.1/firebase-messaging-compat.js');
+
+firebase.initializeApp({{
+  apiKey: '{jq(cfg["apiKey"])}',
+  authDomain: '{jq(cfg["authDomain"])}',
+  projectId: '{jq(cfg["projectId"])}',
+  storageBucket: '{jq(cfg["storageBucket"])}',
+  messagingSenderId: '{jq(cfg["messagingSenderId"])}',
+  appId: '{jq(cfg["appId"])}'
+}});
+
+const messaging = firebase.messaging();
+
+messaging.onBackgroundMessage((payload) => {{
+  const title = (payload.notification && payload.notification.title) || 'Alubee Status';
+  const body = (payload.notification && payload.notification.body) || 'Device offline';
+  const data = payload.data || {{}};
+  self.registration.showNotification(title, {{
+    body: body,
+    icon: '/static/mobile/icon-192.png',
+    badge: '/static/mobile/icon-192.png',
+    data: data,
+    requireInteraction: true,
+    tag: (data.kind || 'status') + ':' + (data.name || 'alert'),
+    renotify: true
+  }});
+}});
+
+self.addEventListener('notificationclick', (event) => {{
+  event.notification.close();
+  const target = '/mobile';
+  event.waitUntil(
+    clients.matchAll({{ type: 'window', includeUncontrolled: true }}).then((list) => {{
+      for (const c of list) {{
+        if (c.url && c.url.indexOf('/mobile') !== -1 && 'focus' in c) return c.focus();
+      }}
+      if (clients.openWindow) return clients.openWindow(target);
+    }})
+  );
+}});
+"""
+    return app.response_class(js, mimetype="application/javascript")
 
 
 @app.get("/")

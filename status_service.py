@@ -72,12 +72,24 @@ def _append_event(db, event: dict) -> None:
     if db is not None:
         try:
             db.collection(EVENTS_COLLECTION).add(event)
-            return
         except Exception as e:
             print(f"status_events write failed: {e}")
-    _MEMORY_EVENTS.append(event)
-    if len(_MEMORY_EVENTS) > MAX_EVENTS:
-        del _MEMORY_EVENTS[: len(_MEMORY_EVENTS) - MAX_EVENTS]
+            _MEMORY_EVENTS.append(event)
+            if len(_MEMORY_EVENTS) > MAX_EVENTS:
+                del _MEMORY_EVENTS[: len(_MEMORY_EVENTS) - MAX_EVENTS]
+    else:
+        _MEMORY_EVENTS.append(event)
+        if len(_MEMORY_EVENTS) > MAX_EVENTS:
+            del _MEMORY_EVENTS[: len(_MEMORY_EVENTS) - MAX_EVENTS]
+
+    # System push for locked phones (FCM) — offline only, once per transition
+    if str(event.get("event") or "") == "offline":
+        try:
+            from push_service import notify_offline
+
+            notify_offline(event)
+        except Exception as e:
+            print(f"FCM notify_offline failed: {e}")
 
 
 def _load_prev(db, unit_id: str) -> dict:
